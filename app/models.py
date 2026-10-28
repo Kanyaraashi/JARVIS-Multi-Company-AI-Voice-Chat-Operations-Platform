@@ -13,6 +13,7 @@ from sqlalchemy import (
     true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from app.db import Base
 
@@ -140,6 +141,50 @@ class WorkflowEvent(Base):
     )
     attempts: Mapped[int] = mapped_column(default=0, server_default="0")
     last_error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+    __table_args__ = (
+        # The customer must belong to the SAME company as the appointment.
+        ForeignKeyConstraint(
+            ["company_id", "customer_id"],
+            ["customers.company_id", "customers.id"],
+            name="fk_appointment_customer_same_company",
+        ),
+        # A retried request cannot create a second appointment.
+        UniqueConstraint(
+            "company_id", "idempotency_key", name="uq_appointment_company_idempotency"
+        ),
+        # Two booked appointments cannot share the same slot in one company.
+        Index(
+            "uq_appointment_company_slot",
+            "company_id",
+            "starts_at",
+            unique=True,
+            postgresql_where=text("status = 'booked'"),
+        ),
+        CheckConstraint(
+            "status IN ('booked', 'cancelled', 'completed')",
+            name="ck_appointment_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    customer_id: Mapped[int]
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reason: Mapped[Optional[str]] = mapped_column(String(300))
+    status: Mapped[str] = mapped_column(
+        String(20), default="booked", server_default="booked"
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
