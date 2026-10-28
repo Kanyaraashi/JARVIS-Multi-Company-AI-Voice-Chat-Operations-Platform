@@ -11,6 +11,8 @@ N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 N8N_WEBHOOK_SECRET = os.getenv("N8N_WEBHOOK_SECRET")
 
 app = FastAPI(title="JARVIS API")
+from app.business import router as business_router
+app.include_router(business_router)
 
 
 class TestEvent(BaseModel):
