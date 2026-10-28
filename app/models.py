@@ -13,7 +13,7 @@ from sqlalchemy import (
     true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
-
+from sqlalchemy.dialects.postgresql import JSONB
 from app.db import Base
 
 
@@ -123,4 +123,26 @@ class ApiKey(Base):
     is_active: Mapped[bool] = mapped_column(default=True, server_default=true())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+class WorkflowEvent(Base):
+    __tablename__ = "workflow_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    ticket_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("support_tickets.id"), index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(50))
+    payload: Mapped[dict] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending"
+    )
+    attempts: Mapped[int] = mapped_column(default=0, server_default="0")
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
