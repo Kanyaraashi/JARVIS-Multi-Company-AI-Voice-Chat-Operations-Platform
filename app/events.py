@@ -10,10 +10,14 @@ load_dotenv()
 
 WEBHOOK_URLS = {
     "ticket_created": os.getenv("N8N_TICKET_WEBHOOK_URL"),
+    "ticket_updated": os.getenv("N8N_TICKET_UPDATED_WEBHOOK_URL"),
+    "escalation_created": os.getenv("N8N_ESCALATION_WEBHOOK_URL"),
     "appointment_created": os.getenv("N8N_APPOINTMENT_WEBHOOK_URL"),
     "appointment_cancelled": os.getenv("N8N_APPOINTMENT_CANCELLED_WEBHOOK_URL"),
     "appointment_rescheduled": os.getenv("N8N_APPOINTMENT_RESCHEDULED_WEBHOOK_URL"),
 }
+
+
 SECRET = os.getenv("N8N_WEBHOOK_SECRET")
 
 

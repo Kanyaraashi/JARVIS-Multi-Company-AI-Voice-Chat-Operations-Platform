@@ -231,38 +231,85 @@ class ChangeResult(BaseModel):
     changed: bool
 
 
+class CancelBody(BaseModel):
+    customer_phone: str = Field(min_length=5, max_length=30)
+
+
 class RescheduleBody(BaseModel):
+    customer_phone: str = Field(min_length=5, max_length=30)
     date: Date
     time: Time
 
 
 def get_own_appointment(
-    db: Session, company: Company, appointment_id: int
+    db: Session, company: Company, appointment_id: int, customer_phone: str
 ) -> Appointment:
-    """Finds an appointment in this company only, and locks it while we change it."""
-    appointment = db.scalar(
+    """Finds an appointment that belongs to THIS customer of THIS company, and locks it."""
+    cleaned = re.sub(r"[\s\-()]", "", customer_phone)
+    customer = db.scalar(
+        select(Customer).where(
+            Customer.company_id == company.id, Customer.phone == cleaned
+        )
+    )
+    appointment = None
+    if customer is not None:
+        appointment = db.scalar(
+            select(Appointment)
+            .where(
+                Appointment.id == appointment_id,
+                Appointment.company_id == company.id,
+                Appointment.customer_id == customer.id,
+            )
+            .with_for_update()
+        )
+    if appointment is None:
+        raise HTTPException(
+            status_code=404, detail="Appointment not found for this customer"
+        )
+    return appointment
+
+
+@router.get("/customers/appointments", response_model=list[AppointmentOut])
+def customer_appointments(
+    phone: str = Query(..., min_length=5, max_length=30),
+    company: Company = Depends(get_current_company),
+    db: Session = Depends(get_db),
+):
+    """Lists the upcoming booked appointments of one customer of this company."""
+    tz = ZoneInfo(company.timezone)
+    cleaned = re.sub(r"[\s\-()]", "", phone)
+    customer = db.scalar(
+        select(Customer).where(
+            Customer.company_id == company.id, Customer.phone == cleaned
+        )
+    )
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    appointments = db.scalars(
         select(Appointment)
         .where(
-            Appointment.id == appointment_id,
             Appointment.company_id == company.id,
+            Appointment.customer_id == customer.id,
+            Appointment.status == "booked",
+            Appointment.starts_at > datetime.now(tz),
         )
-        .with_for_update()
-    )
-    if appointment is None:
-        raise HTTPException(status_code=404, detail="Appointment not found")
-    return appointment
+        .order_by(Appointment.starts_at)
+    ).all()
+    return [to_out(a, tz) for a in appointments]
 
 
 @router.post("/appointments/{appointment_id}/cancel", response_model=ChangeResult)
 def cancel_appointment(
     appointment_id: int,
+    payload: CancelBody,
     background_tasks: BackgroundTasks,
     company: Company = Depends(get_current_company),
     db: Session = Depends(get_db),
 ):
-    """Cancels a booked appointment and queues a cancellation email event."""
+    """Cancels a booked appointment of this customer and queues an email event."""
     tz = ZoneInfo(company.timezone)
-    appointment = get_own_appointment(db, company, appointment_id)
+    appointment = get_own_appointment(db, company, appointment_id, payload.customer_phone)
 
     if appointment.status == "cancelled":  # already done, change nothing
         return {"appointment": to_out(appointment, tz), "changed": False}
@@ -310,9 +357,9 @@ def reschedule_appointment(
     company: Company = Depends(get_current_company),
     db: Session = Depends(get_db),
 ):
-    """Moves a booked appointment to a new free slot and queues an email event."""
+    """Moves a booked appointment of this customer to a new free slot."""
     tz = ZoneInfo(company.timezone)
-    appointment = get_own_appointment(db, company, appointment_id)
+    appointment = get_own_appointment(db, company, appointment_id, payload.customer_phone)
 
     if appointment.status != "booked":
         raise HTTPException(
@@ -380,3 +427,158 @@ def reschedule_appointment(
     db.refresh(appointment)
     background_tasks.add_task(send_event, event.id)
     return {"appointment": to_out(appointment, tz), "changed": True}
+
+# class ChangeResult(BaseModel):
+#     appointment: AppointmentOut
+#     changed: bool
+
+
+# class RescheduleBody(BaseModel):
+#     date: Date
+#     time: Time
+
+
+# def get_own_appointment(
+#     db: Session, company: Company, appointment_id: int
+# ) -> Appointment:
+#     """Finds an appointment in this company only, and locks it while we change it."""
+#     appointment = db.scalar(
+#         select(Appointment)
+#         .where(
+#             Appointment.id == appointment_id,
+#             Appointment.company_id == company.id,
+#         )
+#         .with_for_update()
+#     )
+#     if appointment is None:
+#         raise HTTPException(status_code=404, detail="Appointment not found")
+#     return appointment
+
+
+# @router.post("/appointments/{appointment_id}/cancel", response_model=ChangeResult)
+# def cancel_appointment(
+#     appointment_id: int,
+#     background_tasks: BackgroundTasks,
+#     company: Company = Depends(get_current_company),
+#     db: Session = Depends(get_db),
+# ):
+#     """Cancels a booked appointment and queues a cancellation email event."""
+#     tz = ZoneInfo(company.timezone)
+#     appointment = get_own_appointment(db, company, appointment_id)
+
+#     if appointment.status == "cancelled":  # already done, change nothing
+#         return {"appointment": to_out(appointment, tz), "changed": False}
+#     if appointment.status != "booked":
+#         raise HTTPException(
+#             status_code=409,
+#             detail=f"Cannot cancel an appointment that is {appointment.status}.",
+#         )
+
+#     customer = db.get(Customer, appointment.customer_id)
+#     local = appointment.starts_at.astimezone(tz)
+
+#     appointment.status = "cancelled"
+#     event = WorkflowEvent(
+#         company_id=company.id,
+#         event_type="appointment_cancelled",
+#         payload={
+#             "company": {
+#                 "slug": company.slug,
+#                 "name": company.name,
+#                 "agent_name": company.agent_name,
+#             },
+#             "appointment": {
+#                 "id": appointment.id,
+#                 "date": local.strftime("%A, %d %B %Y"),
+#                 "time": local.strftime("%I:%M %p"),
+#                 "reason": appointment.reason,
+#             },
+#             "customer": {"name": customer.full_name, "email": customer.email},
+#         },
+#     )
+#     db.add(event)
+#     db.commit()  # the cancellation and its event are saved together
+
+#     db.refresh(appointment)
+#     background_tasks.add_task(send_event, event.id)
+#     return {"appointment": to_out(appointment, tz), "changed": True}
+
+
+# @router.post("/appointments/{appointment_id}/reschedule", response_model=ChangeResult)
+# def reschedule_appointment(
+#     appointment_id: int,
+#     payload: RescheduleBody,
+#     background_tasks: BackgroundTasks,
+#     company: Company = Depends(get_current_company),
+#     db: Session = Depends(get_db),
+# ):
+#     """Moves a booked appointment to a new free slot and queues an email event."""
+#     tz = ZoneInfo(company.timezone)
+#     appointment = get_own_appointment(db, company, appointment_id)
+
+#     if appointment.status != "booked":
+#         raise HTTPException(
+#             status_code=409, detail="Only booked appointments can be rescheduled."
+#         )
+
+#     new_start = datetime.combine(
+#         payload.date, payload.time.replace(tzinfo=None), tzinfo=tz
+#     )
+
+#     if new_start == appointment.starts_at:  # already at that time, change nothing
+#         return {"appointment": to_out(appointment, tz), "changed": False}
+
+#     if new_start not in day_slots(payload.date, tz):
+#         raise HTTPException(
+#             status_code=422,
+#             detail="That is not a bookable time. Check availability first.",
+#         )
+#     if new_start <= datetime.now(tz):
+#         raise HTTPException(status_code=422, detail="That time is in the past.")
+
+#     taken = db.scalar(
+#         select(Appointment.id).where(
+#             Appointment.company_id == company.id,
+#             Appointment.starts_at == new_start,
+#             Appointment.status == "booked",
+#         )
+#     )
+#     if taken:
+#         raise HTTPException(status_code=409, detail="That time slot is already booked.")
+
+#     customer = db.get(Customer, appointment.customer_id)
+#     old_local = appointment.starts_at.astimezone(tz)
+
+#     appointment.starts_at = new_start
+#     appointment.ends_at = new_start + timedelta(minutes=SLOT_MINUTES)
+#     event = WorkflowEvent(
+#         company_id=company.id,
+#         event_type="appointment_rescheduled",
+#         payload={
+#             "company": {
+#                 "slug": company.slug,
+#                 "name": company.name,
+#                 "agent_name": company.agent_name,
+#             },
+#             "appointment": {
+#                 "id": appointment.id,
+#                 "old_date": old_local.strftime("%A, %d %B %Y"),
+#                 "old_time": old_local.strftime("%I:%M %p"),
+#                 "date": new_start.strftime("%A, %d %B %Y"),
+#                 "time": new_start.strftime("%I:%M %p"),
+#                 "reason": appointment.reason,
+#             },
+#             "customer": {"name": customer.full_name, "email": customer.email},
+#         },
+#     )
+#     db.add(event)
+
+#     try:
+#         db.commit()  # the move and its event are saved together
+#     except IntegrityError:
+#         db.rollback()
+#         raise HTTPException(status_code=409, detail="That time slot is already booked.")
+
+#     db.refresh(appointment)
+#     background_tasks.add_task(send_event, event.id)
+#     return {"appointment": to_out(appointment, tz), "changed": True}
