@@ -1,0 +1,22 @@
+[run]
+# Measure only the real application code, not one-off scripts.
+include =
+    app/agent.py
+    app/agent_tools.py
+    app/appointments.py
+    app/business.py
+    app/db.py
+    app/escalations.py
+    app/events.py
+    app/internal.py
+    app/invoices.py
+    app/main.py
+    app/models.py
+    app/registration.py
+    app/security.py
+    app/staff.py
+    app/tickets.py
+
+[report]
+exclude_lines =
+    if __name__ == .__main__.:
