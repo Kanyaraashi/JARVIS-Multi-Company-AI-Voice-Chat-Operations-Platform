@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from app.appointments import router as appointments_router
 from app.business import router as business_router
 from app.escalations import router as escalations_router
+from app.internal import router as internal_router
 from app.invoices import router as invoices_router
 from app.registration import router as registration_router
 from app.staff import router as staff_router
@@ -17,6 +18,7 @@ app.include_router(escalations_router)
 app.include_router(appointments_router)
 app.include_router(invoices_router)
 app.include_router(staff_router)
+app.include_router(internal_router)
 
 
 @app.get("/health")
