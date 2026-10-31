@@ -15,6 +15,7 @@ WEBHOOK_URLS = {
     "appointment_created": os.getenv("N8N_APPOINTMENT_WEBHOOK_URL"),
     "appointment_cancelled": os.getenv("N8N_APPOINTMENT_CANCELLED_WEBHOOK_URL"),
     "appointment_rescheduled": os.getenv("N8N_APPOINTMENT_RESCHEDULED_WEBHOOK_URL"),
+    "invoice_requested": os.getenv("N8N_INVOICE_WEBHOOK_URL"),
 }
 
 

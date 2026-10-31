@@ -221,3 +221,33 @@ class TicketUpdate(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+    __table_args__ = (
+        # The customer must belong to the SAME company as the invoice.
+        ForeignKeyConstraint(
+            ["company_id", "customer_id"],
+            ["customers.company_id", "customers.id"],
+            name="fk_invoice_customer_same_company",
+        ),
+        UniqueConstraint("company_id", "invoice_number", name="uq_invoice_company_number"),
+        CheckConstraint("status IN ('paid', 'unpaid')", name="ck_invoice_status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    customer_id: Mapped[int]
+    invoice_number: Mapped[str] = mapped_column(String(40))
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    amount_minor: Mapped[int]  # paise, so 50000 means INR 500.00
+    currency: Mapped[str] = mapped_column(String(3), default="INR", server_default="INR")
+    status: Mapped[str] = mapped_column(
+        String(10), default="unpaid", server_default="unpaid"
+    )
+    description: Mapped[str] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
