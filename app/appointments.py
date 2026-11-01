@@ -5,12 +5,13 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 import re
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.db import get_db
 from app.events import send_event
 from app.models import Appointment, Company, Customer, WorkflowEvent
@@ -148,6 +149,7 @@ def availability(
 @router.post("/appointments", response_model=AppointmentResult)
 def book_appointment(
     payload: AppointmentCreate,
+    request: Request,
     background_tasks: BackgroundTasks,
     idempotency_key: str = Header(..., min_length=8, max_length=100),
     company: Company = Depends(get_current_company),
@@ -220,7 +222,11 @@ def book_appointment(
             },
         )
         db.add(event)
-        db.commit()  # appointment and event are saved together, or not at all
+        audit.record(
+            db, request, company, "appointment.book", "appointment", appointment.id,
+            {"starts_at": start.isoformat()},
+        )
+        db.commit()  # appointment, event and audit record are saved together, or not at all
     except IntegrityError:
         db.rollback()
         existing = find_by_key(db, company.id, idempotency_key)
@@ -329,6 +335,7 @@ def customer_appointments(
 def cancel_appointment(
     appointment_id: int,
     payload: CancelBody,
+    request: Request,
     background_tasks: BackgroundTasks,
     company: Company = Depends(get_current_company),
     db: Session = Depends(get_db),
@@ -368,7 +375,8 @@ def cancel_appointment(
         },
     )
     db.add(event)
-    db.commit()  # the cancellation and its event are saved together
+    audit.record(db, request, company, "appointment.cancel", "appointment", appointment.id)
+    db.commit()  # the cancellation, its event and audit record are saved together
 
     db.refresh(appointment)
     background_tasks.add_task(send_event, event.id)
@@ -379,6 +387,7 @@ def cancel_appointment(
 def reschedule_appointment(
     appointment_id: int,
     payload: RescheduleBody,
+    request: Request,
     background_tasks: BackgroundTasks,
     company: Company = Depends(get_current_company),
     db: Session = Depends(get_db),
@@ -438,9 +447,13 @@ def reschedule_appointment(
         },
     )
     db.add(event)
+    audit.record(
+        db, request, company, "appointment.reschedule", "appointment", appointment.id,
+        {"from": old_local.isoformat(), "to": new_start.isoformat()},
+    )
 
     try:
-        db.commit()  # the move and its event are saved together
+        db.commit()  # the move, its event and audit record are saved together
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="That time slot is already booked.")

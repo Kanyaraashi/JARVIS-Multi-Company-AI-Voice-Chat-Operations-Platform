@@ -2,14 +2,22 @@ from datetime import datetime
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.db import get_db
 from app.events import send_event
-from app.models import Company, Customer, SupportTicket, TicketUpdate, WorkflowEvent
+from app.models import (
+    AuditLog,
+    Company,
+    Customer,
+    SupportTicket,
+    TicketUpdate,
+    WorkflowEvent,
+)
 from app.security import get_staff_company
 
 router = APIRouter(prefix="/staff")
@@ -72,6 +80,7 @@ def list_tickets(
 def update_ticket(
     ticket_id: int,
     payload: TicketPatch,
+    request: Request,
     background_tasks: BackgroundTasks,
     company: Company = Depends(get_staff_company),
     db: Session = Depends(get_db),
@@ -123,7 +132,11 @@ def update_ticket(
         },
     )
     db.add(event)
-    db.commit()  # the change, its history and the event are saved together
+    audit.record(
+        db, request, company, "ticket.status_update", "ticket", ticket.id,
+        {"from": old_status, "to": payload.status},
+    )
+    db.commit()  # the change, its history, the event and the audit record are saved together
 
     db.refresh(ticket)
     background_tasks.add_task(send_event, event.id)
@@ -166,6 +179,7 @@ def get_settings(company: Company = Depends(get_staff_company)):
 @router.patch("/company", response_model=CompanySettings)
 def update_settings(
     payload: SettingsPatch,
+    request: Request,
     company: Company = Depends(get_staff_company),
     db: Session = Depends(get_db),
 ):
@@ -185,8 +199,42 @@ def update_settings(
         raise HTTPException(status_code=422, detail="open_hour must be before close_hour.")
 
     company = db.merge(company)
+    before = {field: getattr(company, field) for field in changes}
     for field, value in changes.items():
         setattr(company, field, value)
+    audit.record(
+        db, request, company, "company.settings_update", "company", company.id,
+        {"before": before, "after": changes},
+    )
     db.commit()
     db.refresh(company)
     return company
+
+
+# ---------- audit trail ----------
+
+class AuditEntry(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    created_at: datetime
+    actor_type: Optional[str] = None
+    actor_label: Optional[str] = None
+    action: str
+    target_type: Optional[str] = None
+    target_id: Optional[int] = None
+    details: Optional[dict] = None
+    ip: Optional[str] = None
+
+
+@router.get("/audit", response_model=list[AuditEntry])
+def audit_trail(
+    limit: int = Query(default=50, ge=1, le=200),
+    action: Optional[str] = Query(default=None, max_length=60),
+    company: Company = Depends(get_staff_company),
+    db: Session = Depends(get_db),
+):
+    """Who changed what in this company, newest first."""
+    query = select(AuditLog).where(AuditLog.company_id == company.id)
+    if action:
+        query = query.where(AuditLog.action == action)
+    return db.scalars(query.order_by(AuditLog.id.desc()).limit(limit)).all()

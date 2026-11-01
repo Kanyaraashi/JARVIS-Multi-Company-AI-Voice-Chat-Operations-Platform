@@ -1,12 +1,13 @@
 import re
 from typing import Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.db import get_db
 from app.events import send_event
 from app.models import Company, Customer, SupportTicket, WorkflowEvent
@@ -49,6 +50,7 @@ def find_by_key(db: Session, company_id: int, key: str):
 @router.post("/tickets", response_model=TicketResult)
 def create_ticket(
     payload: TicketCreate,
+    request: Request,
     background_tasks: BackgroundTasks,
     idempotency_key: str = Header(..., min_length=8, max_length=100),
     company: Company = Depends(get_current_company),
@@ -106,7 +108,11 @@ def create_ticket(
             },
         )
         db.add(event)
-        db.commit()  # ticket and event are saved together, or not at all
+        audit.record(
+            db, request, company, "ticket.create", "ticket", ticket.id,
+            {"priority": ticket.priority},
+        )
+        db.commit()  # ticket, event and audit record are saved together, or not at all
     except IntegrityError:
         db.rollback()
         existing = find_by_key(db, company.id, idempotency_key)
@@ -123,14 +129,25 @@ def create_ticket(
 @router.get("/tickets/{ticket_id}", response_model=TicketOut)
 def get_ticket(
     ticket_id: int,
+    customer_phone: str = Query(..., min_length=5, max_length=30),
     company: Company = Depends(get_current_company),
     db: Session = Depends(get_db),
 ):
-    """Returns a ticket, but only if it belongs to the key's company."""
+    """Returns a ticket, but only to the customer it belongs to (matched by phone number).
+    A wrong number, another company's ticket and a missing ticket all give the same answer,
+    so nobody can find out which ticket numbers exist."""
+    cleaned = re.sub(r"[\s\-()]", "", customer_phone)
     ticket = db.scalar(
-        select(SupportTicket).where(
+        select(SupportTicket)
+        .join(
+            Customer,
+            (Customer.company_id == SupportTicket.company_id)
+            & (Customer.id == SupportTicket.customer_id),
+        )
+        .where(
             SupportTicket.id == ticket_id,
             SupportTicket.company_id == company.id,
+            Customer.phone == cleaned,
         )
     )
     if ticket is None:

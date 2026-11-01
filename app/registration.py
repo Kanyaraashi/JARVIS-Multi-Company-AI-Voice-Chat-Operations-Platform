@@ -1,12 +1,13 @@
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.db import get_db
 from app.models import Company, Customer
 from app.security import get_current_company
@@ -48,6 +49,7 @@ def to_out(customer: Customer) -> dict:
 @router.post("/customers", response_model=CustomerResult)
 def register_customer(
     payload: CustomerCreate,
+    request: Request,
     company: Company = Depends(get_current_company),
     db: Session = Depends(get_db),
 ):
@@ -72,6 +74,8 @@ def register_customer(
     )
     db.add(customer)
     try:
+        db.flush()
+        audit.record(db, request, company, "customer.register", "customer", customer.id)
         db.commit()
     except IntegrityError:
         db.rollback()

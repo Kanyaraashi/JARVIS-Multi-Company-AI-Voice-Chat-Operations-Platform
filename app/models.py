@@ -273,3 +273,22 @@ class Invoice(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    __table_args__ = (Index("ix_audit_company_created", "company_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    actor_type: Mapped[Optional[str]] = mapped_column(String(10))  # "ai" or "staff"
+    actor_id: Mapped[Optional[int]]  # the id of the key that was used
+    actor_label: Mapped[Optional[str]] = mapped_column(String(100))
+    action: Mapped[str] = mapped_column(String(60))
+    target_type: Mapped[Optional[str]] = mapped_column(String(30))
+    target_id: Mapped[Optional[int]]
+    details: Mapped[Optional[dict]] = mapped_column(JSONB)
+    ip: Mapped[Optional[str]] = mapped_column(String(45))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

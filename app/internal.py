@@ -3,12 +3,14 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from sqlalchemy import func, select
 
+from app.audit import client_ip
 from app.db import SessionLocal
 from app.events import send_event
 from app.models import WorkflowEvent
+from app.ratelimit import failure_limiter, reject
 
 router = APIRouter(prefix="/internal")
 
@@ -16,9 +18,14 @@ MAX_ATTEMPTS = 5
 MIN_AGE_MINUTES = 1
 
 
-def check_secret(provided: Optional[str]) -> None:
+def check_secret(provided: Optional[str], request: Request) -> None:
+    ip = client_ip(request)
+    wait = failure_limiter.retry_after(ip)
+    if wait:
+        reject(wait)
     secret = os.getenv("N8N_WEBHOOK_SECRET")
     if not secret or not provided or not hmac.compare_digest(provided, secret):
+        failure_limiter.hit(ip)
         raise HTTPException(status_code=401, detail="Invalid secret")
 
 
@@ -29,9 +36,9 @@ def count(db, *conditions) -> int:
 
 
 @router.post("/retry-events")
-def retry_events(x_jarvis_secret: Optional[str] = Header(default=None)):
+def retry_events(request: Request, x_jarvis_secret: Optional[str] = Header(default=None)):
     """Called by n8n every few minutes. Resends events that were not delivered."""
-    check_secret(x_jarvis_secret)
+    check_secret(x_jarvis_secret, request)
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=MIN_AGE_MINUTES)
 
     with SessionLocal() as db:

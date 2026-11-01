@@ -2,14 +2,16 @@ import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.db import get_db
 from app.events import send_event
 from app.models import Company, Customer, Invoice, WorkflowEvent
+from app.privacy import mask_email
 from app.security import get_current_company
 
 router = APIRouter()
@@ -27,14 +29,10 @@ class InvoiceRequestResult(BaseModel):
     email_hint: str
 
 
-def mask_email(email: str) -> str:
-    name, _, domain = email.partition("@")
-    return f"{name[:1]}***@{domain}" if domain else "***"
-
-
 @router.post("/invoices/email-request", response_model=InvoiceRequestResult)
 def email_latest_invoice(
     payload: InvoiceRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
     company: Company = Depends(get_current_company),
     db: Session = Depends(get_db),
@@ -102,6 +100,10 @@ def email_latest_invoice(
         },
     )
     db.add(event)
+    audit.record(
+        db, request, company, "invoice.email_request", "customer", customer.id,
+        {"invoice_number": invoice.invoice_number},
+    )
     db.commit()
 
     background_tasks.add_task(send_event, event.id)

@@ -49,9 +49,12 @@ def test_customer_of_another_company_is_not_found(client, world, h):
 
 
 def test_cannot_read_another_companys_ticket(client, world, h, n8n):
-    ticket_id = make_ticket(client, h, "dental").json()["ticket"]["id"]
-    assert client.get(f"/tickets/{ticket_id}", headers=h("dental")).status_code == 200
-    assert client.get(f"/tickets/{ticket_id}", headers=h("shop")).status_code == 404
+    ticket_id = make_ticket(client, h, "dental", phone="+919000000001").json()["ticket"]["id"]
+    ok = client.get(f"/tickets/{ticket_id}", params={"customer_phone": "+919000000001"}, headers=h("dental"))
+    assert ok.status_code == 200
+    # the shop has a customer with the very same phone number, but it is not their ticket
+    other = client.get(f"/tickets/{ticket_id}", params={"customer_phone": "+919000000001"}, headers=h("shop"))
+    assert other.status_code == 404
 
 
 def test_cannot_attach_a_ticket_to_another_companys_customer(client, world, h, n8n):

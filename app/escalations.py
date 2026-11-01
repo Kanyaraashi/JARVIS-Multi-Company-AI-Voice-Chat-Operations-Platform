@@ -3,12 +3,13 @@ from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.appointments import company_hours
 from app.db import get_db
 from app.events import send_event
@@ -39,6 +40,7 @@ def is_open_now(company: Company) -> bool:
 @router.post("/escalations", response_model=EscalationResult)
 def escalate_to_human(
     payload: EscalationCreate,
+    request: Request,
     background_tasks: BackgroundTasks,
     idempotency_key: str = Header(..., min_length=8, max_length=100),
     company: Company = Depends(get_current_company),
@@ -100,6 +102,10 @@ def escalate_to_human(
             },
         )
         db.add(event)
+        audit.record(
+            db, request, company, "escalation.create", "ticket", ticket.id,
+            {"within_business_hours": open_now},
+        )
         db.commit()
     except IntegrityError:
         db.rollback()

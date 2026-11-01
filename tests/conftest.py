@@ -70,7 +70,9 @@ def _schema():
 
 @pytest.fixture(autouse=True)
 def _clean():
-    """Every test starts with empty tables."""
+    """Every test starts with empty tables and empty rate-limit counters."""
+    from app.ratelimit import reset_all
+    reset_all()
     names = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
     with engine.begin() as conn:
         conn.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))

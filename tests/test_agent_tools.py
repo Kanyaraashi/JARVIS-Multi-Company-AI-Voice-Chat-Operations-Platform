@@ -129,8 +129,10 @@ def test_ticket_and_status_tools(tools):
                                                customer_phone=ASHA)
     assert created["ok"]
     tid = created["data"]["ticket"]["id"]
-    assert by_name["get_ticket_status"](tid)["data"]["status"] == "open"
-    assert by_name["get_ticket_status"](9999) == {"ok": False, "error": "Ticket not found"}
+    assert by_name["get_ticket_status"](tid, ASHA)["data"]["status"] == "open"
+    assert by_name["get_ticket_status"](9999, ASHA) == {"ok": False, "error": "Ticket not found"}
+    # right ticket number, wrong customer: the same answer as "no such ticket"
+    assert by_name["get_ticket_status"](tid, "+919876543210") == {"ok": False, "error": "Ticket not found"}
 
 
 def test_transfer_to_human_tool(tools):

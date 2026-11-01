@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Company, Customer, Faq
+from app.privacy import mask_email
 from app.security import get_current_company
 
 router = APIRouter()
@@ -37,11 +38,13 @@ class FaqResult(BaseModel):
 
 
 class CustomerInfo(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """The email address itself is never returned, only whether one exists and a masked hint."""
+
     id: int
     full_name: str
     phone: str
-    email: Optional[str] = None
+    has_email: bool
+    email_hint: Optional[str] = None
 
 
 @router.get("/company/me", response_model=CompanyInfo)
@@ -93,4 +96,10 @@ def customer_lookup(
     )
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer not found")
-    return customer
+    return {
+        "id": customer.id,
+        "full_name": customer.full_name,
+        "phone": customer.phone,
+        "has_email": bool(customer.email),
+        "email_hint": mask_email(customer.email) if customer.email else None,
+    }

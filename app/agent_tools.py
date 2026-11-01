@@ -5,6 +5,8 @@ import os
 import httpx
 from dotenv import load_dotenv
 
+from app.privacy import redact
+
 load_dotenv()
 
 API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
@@ -42,7 +44,7 @@ def make_tools(api_key: str, session_id: str, log=None):
         headers = {"X-API-Key": api_key}
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
-        shown = json.dumps(params or body or {}, ensure_ascii=False)
+        shown = redact(json.dumps(params or body or {}, ensure_ascii=False))
         try:
             response = httpx.request(
                 method, API_BASE + path,
@@ -97,11 +99,10 @@ def make_tools(api_key: str, session_id: str, log=None):
         result = call_api("GET", "/customers/lookup", params={"phone": phone})
         if result["ok"]:
             data = result["data"]
-            email = data.get("email")
             result["data"] = {
                 "full_name": data["full_name"],
-                "has_email": bool(email),
-                "email_hint": mask_email(email) if email else None,
+                "has_email": data["has_email"],
+                "email_hint": data["email_hint"],
             }
         return result
 
@@ -215,11 +216,16 @@ def make_tools(api_key: str, session_id: str, log=None):
             idempotency_key=make_key("ticket", subject, description, phone),
         )
 
-    def get_ticket_status(ticket_id: int) -> dict:
-        """Check the status of a support ticket by its number. Statuses: open = received,
-        nobody has started yet; in_progress = staff has started; resolved = finished;
-        closed = closed. Report the status exactly as returned."""
-        return call_api("GET", f"/tickets/{ticket_id}")
+    def get_ticket_status(ticket_id: int, customer_phone: str) -> dict:
+        """Check the status of a support ticket. You need both the ticket number and the phone
+        number of the customer the ticket belongs to. If the result is not ok, say you cannot
+        find that ticket for that phone number. Statuses: open = received, nobody has started
+        yet; in_progress = staff has started; resolved = finished; closed = closed. Report the
+        status exactly as returned."""
+        return call_api(
+            "GET", f"/tickets/{ticket_id}",
+            params={"customer_phone": customer_phone.replace(" ", "")},
+        )
 
     def transfer_to_human(
         reason: str, customer_confirmed: bool, customer_phone: str = ""

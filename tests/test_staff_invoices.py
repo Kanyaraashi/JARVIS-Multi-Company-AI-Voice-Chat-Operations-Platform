@@ -114,7 +114,8 @@ def test_ticket_without_customer_can_be_updated(client, world, h, n8n, events):
 def test_customer_sees_the_new_status(client, world, h, n8n):
     t = ticket(client, h)
     client.patch(f"/staff/tickets/{t}", json={"status": "resolved"}, headers=h("dental_staff"))
-    assert client.get(f"/tickets/{t}", headers=h("dental")).json()["status"] == "resolved"
+    seen = client.get(f"/tickets/{t}", params={"customer_phone": ASHA}, headers=h("dental"))
+    assert seen.json()["status"] == "resolved"
 
 
 # ---------- invoices ----------
