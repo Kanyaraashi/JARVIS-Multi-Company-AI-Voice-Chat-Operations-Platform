@@ -18,11 +18,22 @@ from app.security import get_current_company
 
 router = APIRouter()
 
-# Simple opening rules for now. Later they move into each company's settings.
+# Defaults, used only when a company has no value of its own.
+# Each company's real settings live in the companies table (see /staff/company).
 OPEN_HOUR = 9
 CLOSE_HOUR = 18
 SLOT_MINUTES = 30
 CLOSED_WEEKDAYS = {6}  # 6 = Sunday
+
+
+def company_hours(company: Company) -> tuple[int, int, int, set[int]]:
+    """open hour, close hour, slot length in minutes, closed weekdays of one company."""
+    return (
+        company.open_hour if company.open_hour is not None else OPEN_HOUR,
+        company.close_hour if company.close_hour is not None else CLOSE_HOUR,
+        company.slot_minutes if company.slot_minutes is not None else SLOT_MINUTES,
+        set(company.closed_weekdays) if company.closed_weekdays is not None else CLOSED_WEEKDAYS,
+    )
 
 
 class AppointmentCreate(BaseModel):
@@ -64,17 +75,32 @@ def to_out(appt: Appointment, tz: ZoneInfo) -> dict:
     }
 
 
-def day_slots(day: Date, tz: ZoneInfo) -> list[datetime]:
-    """All bookable start times for one day in the company's timezone."""
-    if day.weekday() in CLOSED_WEEKDAYS:
+def day_slots(day: Date, company: Company) -> list[datetime]:
+    """All bookable start times for one day, using this company's own settings."""
+    tz = ZoneInfo(company.timezone)
+    open_hour, close_hour, slot_minutes, closed = company_hours(company)
+    if day.weekday() in closed:
         return []
     slots = []
-    current = datetime.combine(day, Time(OPEN_HOUR, 0), tzinfo=tz)
-    end = datetime.combine(day, Time(CLOSE_HOUR, 0), tzinfo=tz)
-    while current < end:
+    current = datetime.combine(day, Time(open_hour, 0), tzinfo=tz)
+    end = datetime.combine(day, Time(0, 0), tzinfo=tz) + timedelta(hours=close_hour)
+    while current + timedelta(minutes=slot_minutes) <= end:
         slots.append(current)
-        current += timedelta(minutes=SLOT_MINUTES)
+        current += timedelta(minutes=slot_minutes)
     return slots
+
+
+def slot_taken(db: Session, company: Company, start: datetime, end: datetime, ignore_id=None):
+    """Is any booked appointment of this company overlapping start..end?"""
+    query = select(Appointment.id).where(
+        Appointment.company_id == company.id,
+        Appointment.status == "booked",
+        Appointment.starts_at < end,
+        Appointment.ends_at > start,
+    )
+    if ignore_id is not None:
+        query = query.where(Appointment.id != ignore_id)
+    return db.scalar(query.limit(1))
 
 
 def find_by_key(db: Session, company_id: int, key: str):
@@ -94,23 +120,28 @@ def availability(
 ):
     """Lists the free time slots for one day."""
     tz = ZoneInfo(company.timezone)
-    slots = day_slots(date, tz)
+    _, _, slot_minutes, _ = company_hours(company)
+    slots = day_slots(date, company)
 
-    booked = set()
+    booked = []
     if slots:
-        booked = set(
-            db.scalars(
-                select(Appointment.starts_at).where(
-                    Appointment.company_id == company.id,
-                    Appointment.status == "booked",
-                    Appointment.starts_at >= slots[0],
-                    Appointment.starts_at <= slots[-1],
-                )
-            ).all()
-        )
+        window_end = slots[-1] + timedelta(minutes=slot_minutes)
+        booked = db.execute(
+            select(Appointment.starts_at, Appointment.ends_at).where(
+                Appointment.company_id == company.id,
+                Appointment.status == "booked",
+                Appointment.starts_at < window_end,
+                Appointment.ends_at > slots[0],
+            )
+        ).all()
 
     now = datetime.now(tz)
-    open_slots = [s.strftime("%H:%M") for s in slots if s > now and s not in booked]
+    length = timedelta(minutes=slot_minutes)
+    open_slots = [
+        s.strftime("%H:%M")
+        for s in slots
+        if s > now and not any(b.starts_at < s + length and b.ends_at > s for b in booked)
+    ]
     return {"date": date.isoformat(), "timezone": str(tz), "open_slots": open_slots}
 
 
@@ -134,7 +165,7 @@ def book_appointment(
         payload.date, payload.time.replace(tzinfo=None), tzinfo=tz
     )
 
-    if start not in day_slots(payload.date, tz):
+    if start not in day_slots(payload.date, company):
         raise HTTPException(
             status_code=422,
             detail="That is not a bookable time. Check availability first.",
@@ -151,21 +182,16 @@ def book_appointment(
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer not found")
 
-    taken = db.scalar(
-        select(Appointment.id).where(
-            Appointment.company_id == company.id,
-            Appointment.starts_at == start,
-            Appointment.status == "booked",
-        )
-    )
-    if taken:
+    _, _, slot_minutes, _ = company_hours(company)
+    end = start + timedelta(minutes=slot_minutes)
+    if slot_taken(db, company, start, end):
         raise HTTPException(status_code=409, detail="That time slot is already booked.")
 
     appointment = Appointment(
         company_id=company.id,
         customer_id=customer.id,
         starts_at=start,
-        ends_at=start + timedelta(minutes=SLOT_MINUTES),
+        ends_at=end,
         reason=payload.reason,
         idempotency_key=idempotency_key,
     )
@@ -373,7 +399,7 @@ def reschedule_appointment(
     if new_start == appointment.starts_at:  # already at that time, change nothing
         return {"appointment": to_out(appointment, tz), "changed": False}
 
-    if new_start not in day_slots(payload.date, tz):
+    if new_start not in day_slots(payload.date, company):
         raise HTTPException(
             status_code=422,
             detail="That is not a bookable time. Check availability first.",
@@ -381,21 +407,16 @@ def reschedule_appointment(
     if new_start <= datetime.now(tz):
         raise HTTPException(status_code=422, detail="That time is in the past.")
 
-    taken = db.scalar(
-        select(Appointment.id).where(
-            Appointment.company_id == company.id,
-            Appointment.starts_at == new_start,
-            Appointment.status == "booked",
-        )
-    )
-    if taken:
+    _, _, slot_minutes, _ = company_hours(company)
+    new_end = new_start + timedelta(minutes=slot_minutes)
+    if slot_taken(db, company, new_start, new_end, ignore_id=appointment.id):
         raise HTTPException(status_code=409, detail="That time slot is already booked.")
 
     customer = db.get(Customer, appointment.customer_id)
     old_local = appointment.starts_at.astimezone(tz)
 
     appointment.starts_at = new_start
-    appointment.ends_at = new_start + timedelta(minutes=SLOT_MINUTES)
+    appointment.ends_at = new_end
     event = WorkflowEvent(
         company_id=company.id,
         event_type="appointment_rescheduled",
@@ -427,158 +448,3 @@ def reschedule_appointment(
     db.refresh(appointment)
     background_tasks.add_task(send_event, event.id)
     return {"appointment": to_out(appointment, tz), "changed": True}
-
-# class ChangeResult(BaseModel):
-#     appointment: AppointmentOut
-#     changed: bool
-
-
-# class RescheduleBody(BaseModel):
-#     date: Date
-#     time: Time
-
-
-# def get_own_appointment(
-#     db: Session, company: Company, appointment_id: int
-# ) -> Appointment:
-#     """Finds an appointment in this company only, and locks it while we change it."""
-#     appointment = db.scalar(
-#         select(Appointment)
-#         .where(
-#             Appointment.id == appointment_id,
-#             Appointment.company_id == company.id,
-#         )
-#         .with_for_update()
-#     )
-#     if appointment is None:
-#         raise HTTPException(status_code=404, detail="Appointment not found")
-#     return appointment
-
-
-# @router.post("/appointments/{appointment_id}/cancel", response_model=ChangeResult)
-# def cancel_appointment(
-#     appointment_id: int,
-#     background_tasks: BackgroundTasks,
-#     company: Company = Depends(get_current_company),
-#     db: Session = Depends(get_db),
-# ):
-#     """Cancels a booked appointment and queues a cancellation email event."""
-#     tz = ZoneInfo(company.timezone)
-#     appointment = get_own_appointment(db, company, appointment_id)
-
-#     if appointment.status == "cancelled":  # already done, change nothing
-#         return {"appointment": to_out(appointment, tz), "changed": False}
-#     if appointment.status != "booked":
-#         raise HTTPException(
-#             status_code=409,
-#             detail=f"Cannot cancel an appointment that is {appointment.status}.",
-#         )
-
-#     customer = db.get(Customer, appointment.customer_id)
-#     local = appointment.starts_at.astimezone(tz)
-
-#     appointment.status = "cancelled"
-#     event = WorkflowEvent(
-#         company_id=company.id,
-#         event_type="appointment_cancelled",
-#         payload={
-#             "company": {
-#                 "slug": company.slug,
-#                 "name": company.name,
-#                 "agent_name": company.agent_name,
-#             },
-#             "appointment": {
-#                 "id": appointment.id,
-#                 "date": local.strftime("%A, %d %B %Y"),
-#                 "time": local.strftime("%I:%M %p"),
-#                 "reason": appointment.reason,
-#             },
-#             "customer": {"name": customer.full_name, "email": customer.email},
-#         },
-#     )
-#     db.add(event)
-#     db.commit()  # the cancellation and its event are saved together
-
-#     db.refresh(appointment)
-#     background_tasks.add_task(send_event, event.id)
-#     return {"appointment": to_out(appointment, tz), "changed": True}
-
-
-# @router.post("/appointments/{appointment_id}/reschedule", response_model=ChangeResult)
-# def reschedule_appointment(
-#     appointment_id: int,
-#     payload: RescheduleBody,
-#     background_tasks: BackgroundTasks,
-#     company: Company = Depends(get_current_company),
-#     db: Session = Depends(get_db),
-# ):
-#     """Moves a booked appointment to a new free slot and queues an email event."""
-#     tz = ZoneInfo(company.timezone)
-#     appointment = get_own_appointment(db, company, appointment_id)
-
-#     if appointment.status != "booked":
-#         raise HTTPException(
-#             status_code=409, detail="Only booked appointments can be rescheduled."
-#         )
-
-#     new_start = datetime.combine(
-#         payload.date, payload.time.replace(tzinfo=None), tzinfo=tz
-#     )
-
-#     if new_start == appointment.starts_at:  # already at that time, change nothing
-#         return {"appointment": to_out(appointment, tz), "changed": False}
-
-#     if new_start not in day_slots(payload.date, tz):
-#         raise HTTPException(
-#             status_code=422,
-#             detail="That is not a bookable time. Check availability first.",
-#         )
-#     if new_start <= datetime.now(tz):
-#         raise HTTPException(status_code=422, detail="That time is in the past.")
-
-#     taken = db.scalar(
-#         select(Appointment.id).where(
-#             Appointment.company_id == company.id,
-#             Appointment.starts_at == new_start,
-#             Appointment.status == "booked",
-#         )
-#     )
-#     if taken:
-#         raise HTTPException(status_code=409, detail="That time slot is already booked.")
-
-#     customer = db.get(Customer, appointment.customer_id)
-#     old_local = appointment.starts_at.astimezone(tz)
-
-#     appointment.starts_at = new_start
-#     appointment.ends_at = new_start + timedelta(minutes=SLOT_MINUTES)
-#     event = WorkflowEvent(
-#         company_id=company.id,
-#         event_type="appointment_rescheduled",
-#         payload={
-#             "company": {
-#                 "slug": company.slug,
-#                 "name": company.name,
-#                 "agent_name": company.agent_name,
-#             },
-#             "appointment": {
-#                 "id": appointment.id,
-#                 "old_date": old_local.strftime("%A, %d %B %Y"),
-#                 "old_time": old_local.strftime("%I:%M %p"),
-#                 "date": new_start.strftime("%A, %d %B %Y"),
-#                 "time": new_start.strftime("%I:%M %p"),
-#                 "reason": appointment.reason,
-#             },
-#             "customer": {"name": customer.full_name, "email": customer.email},
-#         },
-#     )
-#     db.add(event)
-
-#     try:
-#         db.commit()  # the move and its event are saved together
-#     except IntegrityError:
-#         db.rollback()
-#         raise HTTPException(status_code=409, detail="That time slot is already booked.")
-
-#     db.refresh(appointment)
-#     background_tasks.add_task(send_event, event.id)
-#     return {"appointment": to_out(appointment, tz), "changed": True}

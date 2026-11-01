@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -127,3 +128,65 @@ def update_ticket(
     db.refresh(ticket)
     background_tasks.add_task(send_event, event.id)
     return {"ticket": to_staff(ticket, customer), "changed": True}
+
+
+# ---------- company settings ----------
+
+class CompanySettings(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    slug: str
+    name: str
+    timezone: str
+    staff_email: Optional[str] = None
+    open_hour: int
+    close_hour: int
+    slot_minutes: int
+    closed_weekdays: list[int]
+
+
+class SettingsPatch(BaseModel):
+    """Send only the fields you want to change. staff_email: null removes it."""
+
+    staff_email: Optional[str] = Field(
+        default=None, max_length=200, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+    )
+    open_hour: int = Field(default=9, ge=0, le=23)
+    close_hour: int = Field(default=18, ge=1, le=24)
+    slot_minutes: Literal[10, 15, 20, 30, 45, 60] = 30
+    closed_weekdays: list[Literal[0, 1, 2, 3, 4, 5, 6]] = Field(default_factory=list)
+    timezone: str = Field(default="Asia/Kolkata", max_length=50)
+
+
+@router.get("/company", response_model=CompanySettings)
+def get_settings(company: Company = Depends(get_staff_company)):
+    """Shows this company's settings."""
+    return company
+
+
+@router.patch("/company", response_model=CompanySettings)
+def update_settings(
+    payload: SettingsPatch,
+    company: Company = Depends(get_staff_company),
+    db: Session = Depends(get_db),
+):
+    """Changes this company's settings. Only the fields you send are changed."""
+    changes = payload.model_dump(exclude_unset=True)
+    if "closed_weekdays" in changes:
+        changes["closed_weekdays"] = sorted(set(changes["closed_weekdays"]))
+    if "timezone" in changes:
+        try:
+            ZoneInfo(changes["timezone"])
+        except (ZoneInfoNotFoundError, ValueError):
+            raise HTTPException(status_code=422, detail="Unknown timezone, for example Asia/Kolkata.")
+
+    new_open = changes.get("open_hour", company.open_hour)
+    new_close = changes.get("close_hour", company.close_hour)
+    if new_open >= new_close:
+        raise HTTPException(status_code=422, detail="open_hour must be before close_hour.")
+
+    company = db.merge(company)
+    for field, value in changes.items():
+        setattr(company, field, value)
+    db.commit()
+    db.refresh(company)
+    return company

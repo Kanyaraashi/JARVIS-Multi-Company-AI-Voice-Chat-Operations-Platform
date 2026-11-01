@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.appointments import CLOSE_HOUR, CLOSED_WEEKDAYS, OPEN_HOUR
+from app.appointments import company_hours
 from app.db import get_db
 from app.events import send_event
 from app.models import Company, Customer, SupportTicket, WorkflowEvent
@@ -32,7 +32,8 @@ class EscalationResult(BaseModel):
 
 def is_open_now(company: Company) -> bool:
     now = datetime.now(ZoneInfo(company.timezone))
-    return now.weekday() not in CLOSED_WEEKDAYS and OPEN_HOUR <= now.hour < CLOSE_HOUR
+    open_hour, close_hour, _, closed = company_hours(company)
+    return now.weekday() not in closed and open_hour <= now.hour < close_hour
 
 
 @router.post("/escalations", response_model=EscalationResult)
@@ -79,7 +80,11 @@ def escalate_to_human(
             ticket_id=ticket.id,
             event_type="escalation_created",
             payload={
-                "company": {"slug": company.slug, "name": company.name},
+                "company": {
+                    "slug": company.slug,
+                    "name": company.name,
+                    "staff_email": company.staff_email,
+                },
                 "ticket": {
                     "id": ticket.id,
                     "subject": ticket.subject,

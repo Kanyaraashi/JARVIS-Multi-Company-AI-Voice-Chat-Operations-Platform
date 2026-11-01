@@ -90,7 +90,11 @@ def create_ticket(
             ticket_id=ticket.id,
             event_type="ticket_created",
             payload={
-                "company": {"slug": company.slug, "name": company.name},
+                "company": {
+                    "slug": company.slug,
+                    "name": company.name,
+                    "staff_email": company.staff_email,
+                },
                 "ticket": {
                     "id": ticket.id,
                     "subject": ticket.subject,

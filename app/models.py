@@ -6,20 +6,32 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
     true,
 )
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Index, text
-from sqlalchemy.dialects.postgresql import JSONB
+
 from app.db import Base
 
 
 class Company(Base):
     __tablename__ = "companies"
+    __table_args__ = (
+        CheckConstraint(
+            "open_hour >= 0 AND close_hour <= 24 AND open_hour < close_hour",
+            name="ck_company_hours",
+        ),
+        CheckConstraint(
+            "slot_minutes IN (10, 15, 20, 30, 45, 60)", name="ck_company_slot_minutes"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     slug: Mapped[str] = mapped_column(String(50), unique=True)
@@ -34,6 +46,15 @@ class Company(Base):
         String(50), default="Asia/Kolkata", server_default="Asia/Kolkata"
     )
     is_active: Mapped[bool] = mapped_column(default=True, server_default=true())
+    # Company settings (changed by staff, see /staff/company)
+    staff_email: Mapped[Optional[str]] = mapped_column(String(200))
+    open_hour: Mapped[int] = mapped_column(default=9, server_default="9")
+    close_hour: Mapped[int] = mapped_column(default=18, server_default="18")
+    slot_minutes: Mapped[int] = mapped_column(default=30, server_default="30")
+    # Weekdays the company is closed: 0 = Monday ... 6 = Sunday
+    closed_weekdays: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer), default=lambda: [6], server_default=text("'{6}'")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -112,6 +133,7 @@ class SupportTicket(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+
 class ApiKey(Base):
     __tablename__ = "api_keys"
 
@@ -125,6 +147,7 @@ class ApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
 
 class WorkflowEvent(Base):
     __tablename__ = "workflow_events"
@@ -147,6 +170,7 @@ class WorkflowEvent(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
 
 class Appointment(Base):
     __tablename__ = "appointments"
@@ -193,7 +217,6 @@ class Appointment(Base):
     )
 
 
-
 class StaffKey(Base):
     __tablename__ = "staff_keys"
 
@@ -221,7 +244,6 @@ class TicketUpdate(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-
 
 
 class Invoice(Base):
