@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from app.db import SessionLocal
+from conftest import AdminSession as SessionLocal
 from app.models import Appointment
 from conftest import KEYS, new_key
 

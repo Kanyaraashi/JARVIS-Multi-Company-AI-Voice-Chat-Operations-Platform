@@ -17,14 +17,12 @@ WEBHOOK_URLS = {
     "appointment_rescheduled": os.getenv("N8N_APPOINTMENT_RESCHEDULED_WEBHOOK_URL"),
     "invoice_requested": os.getenv("N8N_INVOICE_WEBHOOK_URL"),
 }
-
-
 SECRET = os.getenv("N8N_WEBHOOK_SECRET")
 
 
 def send_event(event_id: int) -> None:
     """Sends one saved event to n8n and records whether it worked."""
-    with SessionLocal() as db:
+    with SessionLocal(info={"system": True}) as db:  # serves every company
         event = db.get(WorkflowEvent, event_id)
         if event is None or event.status == "sent":
             return

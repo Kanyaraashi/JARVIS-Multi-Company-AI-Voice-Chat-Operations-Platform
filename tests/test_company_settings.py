@@ -1,7 +1,7 @@
 """Per-company settings: staff email, opening hours, slot length, closed days."""
 import pytest
 
-from app.db import SessionLocal
+from conftest import AdminSession as SessionLocal
 from app.models import Company
 from conftest import new_key
 

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.audit import client_ip
-from app.db import get_db
+from app.db import clear_context, get_db, use_company, use_system
 from app.models import ApiKey, Company, StaffKey
 from app.ratelimit import failure_limiter, reject, request_limiter
 
@@ -32,17 +32,25 @@ def _company_for_key(model, kind: str, api_key: str | None, db: Session, request
         raise HTTPException(status_code=401, detail="Missing API key")
 
     key_hash = hash_key(api_key)
-    record = db.scalar(
-        select(model).where(model.key_hash == key_hash, model.is_active.is_(True))
-    )
+    use_system(db)  # the company is not known yet, so the key itself must be looked up
+    try:
+        record = db.scalar(
+            select(model).where(model.key_hash == key_hash, model.is_active.is_(True))
+        )
+        company = db.get(Company, record.company_id) if record else None
+    finally:
+        clear_context(db)  # never stay in system mode, whatever happens above
+
     if record is None:
         failure_limiter.hit(ip)
         log.warning("Rejected %s key from %s", kind, ip)
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    company = db.get(Company, record.company_id)
     if company is None or not company.is_active:
         raise HTTPException(status_code=403, detail="Company is not active")
+
+    # From here on the database only shows this company's rows.
+    use_company(db, company.id)
 
     # A valid key may still not send unlimited requests.
     bucket = f"{kind}:{key_hash}"

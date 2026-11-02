@@ -4,7 +4,7 @@ import logging
 import pytest
 
 from app import ratelimit
-from app.db import SessionLocal
+from conftest import AdminSession as SessionLocal
 from app.models import AuditLog
 from app.privacy import redact
 from conftest import new_key

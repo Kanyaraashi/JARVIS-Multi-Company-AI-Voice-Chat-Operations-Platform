@@ -41,7 +41,7 @@ services:
       - .env
     environment:
       # Inside Docker the services find each other by name, not by localhost.
-      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - DATABASE_URL=postgresql+psycopg://jarvis_app:${JARVIS_APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - N8N_TICKET_WEBHOOK_URL=http://n8n:5678/webhook/ticket-created
       - N8N_TICKET_UPDATED_WEBHOOK_URL=http://n8n:5678/webhook/ticket-updated
       - N8N_ESCALATION_WEBHOOK_URL=http://n8n:5678/webhook/escalation-created

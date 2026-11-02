@@ -1,7 +1,7 @@
 """Staff keys, ticket updates, and invoice emails."""
 from datetime import datetime, timedelta, timezone
 
-from app.db import SessionLocal
+from conftest import AdminSession as SessionLocal
 from app.models import Customer, Invoice, TicketUpdate, WorkflowEvent
 from conftest import new_key
 

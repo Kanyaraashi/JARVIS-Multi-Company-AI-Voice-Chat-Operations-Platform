@@ -1,5 +1,5 @@
 """n8n down means the work is still saved, and recovery sends it later."""
-from app.db import SessionLocal
+from conftest import AdminSession as SessionLocal
 from app.models import SupportTicket, WorkflowEvent
 from conftest import KEYS, new_key
 

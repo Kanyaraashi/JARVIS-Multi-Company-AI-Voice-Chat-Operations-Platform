@@ -3,6 +3,11 @@
 Safety first: these tests DELETE all rows in the database they use.
 So they never touch your real database. They create and use a separate one
 named <your database>_test, and refuse to run on anything not ending in _test.
+
+Two database users are involved, exactly like in production:
+  - the OWNER (from DATABASE_URL in .env) builds the tables and seeds test data,
+  - jarvis_app, the restricted user the API runs as, is used by the app under test,
+    so every test also exercises row-level security.
 """
 import os
 import pathlib
@@ -14,26 +19,32 @@ import pytest
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.orm import sessionmaker
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
 # ---- 1. Point everything at a separate test database BEFORE the app is imported
-_real = make_url(os.environ["DATABASE_URL"])
-_test_name = (_real.database or "jarvis") + "_test"
-_test = _real.set(database=_test_name)
+_owner = make_url(os.environ["DATABASE_URL"])
+_app_password = os.environ.get("JARVIS_APP_DB_PASSWORD")
+if not _app_password:
+    pytest.exit("JARVIS_APP_DB_PASSWORD is missing in .env (see Step 21b)", returncode=2)
+_test_name = (_owner.database or "jarvis") + "_test"
+ADMIN_URL = _owner.set(database=_test_name)
+APP_URL = ADMIN_URL.set(username="jarvis_app", password=_app_password)
 
-_admin = create_engine(_real, isolation_level="AUTOCOMMIT")
-with _admin.connect() as conn:
+_boot = create_engine(_owner, isolation_level="AUTOCOMMIT")
+with _boot.connect() as conn:
     exists = conn.execute(
         text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": _test_name}
     ).scalar()
     if not exists:
         conn.execute(text(f'CREATE DATABASE "{_test_name}"'))
-_admin.dispose()
+_boot.dispose()
 
-os.environ["DATABASE_URL"] = _test.render_as_string(hide_password=False)
+os.environ["ADMIN_DATABASE_URL"] = ADMIN_URL.render_as_string(hide_password=False)
+os.environ["DATABASE_URL"] = APP_URL.render_as_string(hide_password=False)
 os.environ["N8N_WEBHOOK_SECRET"] = "test-secret"
 for _name in (
     "TICKET", "TICKET_UPDATED", "ESCALATION", "APPOINTMENT",
@@ -41,9 +52,11 @@ for _name in (
 ):
     os.environ[f"N8N_{_name}_WEBHOOK_URL"] = f"http://n8n.test/webhook/{_name.lower()}"
 
+from alembic import command  # noqa: E402
+from alembic.config import Config  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.db import Base, SessionLocal, engine  # noqa: E402
+from app.db import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import (  # noqa: E402
     ApiKey, Company, Customer, Faq, Invoice, StaffKey, WorkflowEvent,
@@ -51,6 +64,11 @@ from app.models import (  # noqa: E402
 from app.security import hash_key  # noqa: E402
 
 assert engine.url.database.endswith("_test"), "Refusing to run tests on a non-test database"
+assert engine.url.username == "jarvis_app", "The app under test must use the restricted user"
+
+# The owner connection: used to seed and to inspect. It is NOT subject to row-level security.
+admin_engine = create_engine(ADMIN_URL)
+AdminSession = sessionmaker(bind=admin_engine, autoflush=False)
 
 KEYS = {
     "dental": "jrv_dental_test_key",
@@ -62,10 +80,17 @@ KEYS = {
 
 @pytest.fixture(scope="session", autouse=True)
 def _schema():
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    """Builds the test database with the real migrations, so they are tested too."""
+    with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+        conn.execute(text("GRANT ALL ON SCHEMA public TO PUBLIC"))
+    cfg = Config(str(ROOT / "alembic.ini"))
+    cfg.attributes["configure_logger"] = False
+    command.upgrade(cfg, "head")
     yield
     engine.dispose()
+    admin_engine.dispose()
 
 
 @pytest.fixture(autouse=True)
@@ -74,7 +99,7 @@ def _clean():
     from app.ratelimit import reset_all
     reset_all()
     names = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
-    with engine.begin() as conn:
+    with admin_engine.begin() as conn:
         conn.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
     yield
 
@@ -82,7 +107,7 @@ def _clean():
 @pytest.fixture
 def world():
     """Two companies, each with customers, an AI key, a staff key and some data."""
-    with SessionLocal() as db:
+    with AdminSession() as db:
         dental = Company(
             slug="smile-dental", name="Smile Dental", agent_name="Maya",
             greeting="Hi", instructions="Be kind", timezone="Asia/Kolkata",
@@ -164,7 +189,7 @@ def n8n(monkeypatch):
 @pytest.fixture
 def events():
     def _all():
-        with SessionLocal() as db:
+        with AdminSession() as db:
             rows = db.query(WorkflowEvent).order_by(WorkflowEvent.id).all()
             return [
                 {"id": r.id, "company_id": r.company_id, "type": r.event_type,

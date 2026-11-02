@@ -41,7 +41,7 @@ def retry_events(request: Request, x_jarvis_secret: Optional[str] = Header(defau
     check_secret(x_jarvis_secret, request)
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=MIN_AGE_MINUTES)
 
-    with SessionLocal() as db:
+    with SessionLocal(info={"system": True}) as db:  # serves every company
         ids = db.scalars(
             select(WorkflowEvent.id)
             .where(
@@ -56,7 +56,7 @@ def retry_events(request: Request, x_jarvis_secret: Optional[str] = Header(defau
     for event_id in ids:
         send_event(event_id)
 
-    with SessionLocal() as db:
+    with SessionLocal(info={"system": True}) as db:  # serves every company
         gave_up = count(
             db, WorkflowEvent.status != "sent", WorkflowEvent.attempts >= MAX_ATTEMPTS
         )
