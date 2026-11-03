@@ -15,7 +15,7 @@ load_dotenv()
 
 TABLES = [
     "companies", "faqs", "customers", "support_tickets", "api_keys", "workflow_events",
-    "appointments", "staff_keys", "ticket_updates", "invoices", "audit_log",
+    "appointments", "staff_keys", "ticket_updates", "invoices", "audit_log", "call_records",
 ]
 failures = 0
 

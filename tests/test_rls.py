@@ -15,6 +15,7 @@ from conftest import AdminSession, admin_engine, KEYS, new_key
 TABLES_WITH_COMPANY_ID = [
     "faqs", "customers", "support_tickets", "api_keys", "workflow_events",
     "appointments", "staff_keys", "ticket_updates", "invoices", "audit_log",
+    "call_records",
 ]
 
 

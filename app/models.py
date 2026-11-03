@@ -292,3 +292,44 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class CallRecord(Base):
+    __tablename__ = "call_records"
+    __table_args__ = (
+        # The customer must belong to the SAME company as the call.
+        ForeignKeyConstraint(
+            ["company_id", "customer_id"],
+            ["customers.company_id", "customers.id"],
+            name="fk_call_customer_same_company",
+        ),
+        # Sending the same finished call twice cannot create a second record.
+        UniqueConstraint("company_id", "room_name", name="uq_call_company_room"),
+        CheckConstraint(
+            "direction IN ('inbound', 'outbound', 'web')", name="ck_call_direction"
+        ),
+        CheckConstraint(
+            "outcome IN ('completed', 'handoff', 'abandoned', 'failed')",
+            name="ck_call_outcome",
+        ),
+        Index("ix_call_company_started", "company_id", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    room_name: Mapped[str] = mapped_column(String(120))
+    direction: Mapped[str] = mapped_column(String(10))
+    caller_phone: Mapped[Optional[str]] = mapped_column(String(30))
+    customer_id: Mapped[Optional[int]]
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[int]
+    outcome: Mapped[str] = mapped_column(String(10))
+    turn_count: Mapped[int]  # how many times the caller spoke
+    transcript: Mapped[list] = mapped_column(JSONB)  # personal data already masked
+    tools_used: Mapped[list] = mapped_column(JSONB)  # tool name and ok, never the details
+    latency_turns: Mapped[list] = mapped_column(JSONB)
+    providers: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

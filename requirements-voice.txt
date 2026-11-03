@@ -1,0 +1,1 @@
+livekit-agents[deepgram,sarvam,silero,google]==1.8.10
