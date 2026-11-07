@@ -7,6 +7,7 @@ from app.escalations import router as escalations_router
 from app.internal import router as internal_router
 from app.invoices import router as invoices_router
 from app.privacy import install_log_redaction
+from app.dashboard import router as dashboard_router
 from app.registration import router as registration_router
 from app.staff import router as staff_router
 from app.tickets import router as tickets_router
@@ -23,6 +24,7 @@ app.include_router(appointments_router)
 app.include_router(invoices_router)
 app.include_router(staff_router)
 app.include_router(calls_router)
+app.include_router(dashboard_router)
 app.include_router(internal_router)
 
 
