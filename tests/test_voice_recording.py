@@ -167,3 +167,31 @@ def test_a_failed_callback_is_reported_not_hidden(monkeypatch, fast):
     monkeypatch.setattr(rec.httpx, "post", FakePost(200))
     monkeypatch.setattr(worker, "handoff", lambda *a: None)
     assert "could NOT be recorded" in asyncio.run(worker.save_call(r, "smile-dental", "k", "http://api"))
+
+
+from app.voice.recorder import CallRecorder  # noqa: E402
+
+
+def test_filler_and_switch_notes_are_attached_to_the_turn_they_belong_to():
+    rec = CallRecorder("call-n", "web", None, {})
+    rec.on_message("user", "Hours?", {"stopped_speaking_at": 10.0, "end_of_turn_delay": 0.3})
+    rec.note_first_token(8000)
+    rec.note_first_token(100)          # a later round does not replace the first
+    rec.note_filler()
+    rec.note_switch("a", "b", "too slow")
+    rec.on_message("assistant", "One moment please. We open at nine.", {"started_speaking_at": 12.6, "llm_node_ttft": 2.5})
+    rec.on_message("user", "Thanks", {"stopped_speaking_at": 20.0})
+    rec.on_message("assistant", "Welcome.", {"started_speaking_at": 20.8})
+    first, second = rec.turns
+    assert first["llm_real_ms"] == 8000 and first["filler"] is True and first["switched"] is True
+    assert "llm_real_ms" not in second and "filler" not in second and "switched" not in second
+
+
+def test_the_sorry_message_never_counts_as_answering_the_caller():
+    r = CallRecorder("call-s", "web", None, {})
+    r.not_answers.add("Sorry, technical trouble.")
+    r.on_message("user", "Hours?", {})
+    r.on_error()
+    r.on_message("assistant", "Sorry, technical trouble.", {})
+    assert r.unanswered() and r.outcome() == "failed"
+    assert r.lines[-1]["text"] == "Sorry, technical trouble."   # still in the transcript

@@ -43,6 +43,9 @@ class TurnLatency(BaseModel):
     think_ms: Optional[int] = Field(default=None, ge=0, le=600_000)
     speak_ms: Optional[int] = Field(default=None, ge=0, le=600_000)
     source: Optional[Literal["measured", "estimated"]] = None
+    llm_real_ms: Optional[int] = Field(default=None, ge=0, le=600_000)  # the model's own time
+    filler: Optional[bool] = None      # the caller heard "One moment please."
+    switched: Optional[bool] = None    # a backup model answered
 
 
 class CallCreate(BaseModel):

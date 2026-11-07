@@ -71,7 +71,9 @@ def summarize(turns: list, target_ms: int = 1500) -> dict:
             "turns": 0, "avg_ms": None, "p50_ms": None, "p95_ms": None, "max_ms": None,
             "target_ms": target_ms, "within_target_pct": None,
             "average_by_part": {"listen_ms": None, "think_ms": None, "speak_ms": None},
+            "avg_llm_real_ms": None, "filler_pct": None, "switched_pct": None,
         }
+    real = [t["llm_real_ms"] for t in turns if t.get("llm_real_ms") is not None]
     by_part = {}
     for part in ("listen_ms", "think_ms", "speak_ms"):
         values = [t[part] for t in turns if t.get(part) is not None]
@@ -85,4 +87,9 @@ def summarize(turns: list, target_ms: int = 1500) -> dict:
         "target_ms": target_ms,
         "within_target_pct": round(100 * sum(1 for x in totals if x <= target_ms) / len(totals)),
         "average_by_part": by_part,
+        # "One moment please." shortens what the caller waits for, so also report the model's
+        # own time and how often the filler or a backup model was needed.
+        "avg_llm_real_ms": round(sum(real) / len(real)) if real else None,
+        "filler_pct": round(100 * sum(1 for t in turns if t.get("filler")) / len(turns)),
+        "switched_pct": round(100 * sum(1 for t in turns if t.get("switched")) / len(turns)),
     }

@@ -105,14 +105,15 @@ def test_missing_speech_keys_stop_with_a_clear_message(monkeypatch):
 
 
 def test_several_gemini_models_become_a_failover_chain(monkeypatch):
-    from livekit.agents import llm
+    from app.voice.fast_llm import FastFailoverLLM
     monkeypatch.setenv("GEMINI_API_KEY", "g_test")
     monkeypatch.setenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
-    monkeypatch.setenv("GEMINI_FALLBACK_MODELS", "gemini-2.5-flash, gemini-3.1-flash-lite")
+    monkeypatch.setenv("GEMINI_FALLBACK_MODELS", "gemini-3.5-flash-lite, gemini-3.1-flash-lite")
     chain = providers.build_llm()
-    assert isinstance(chain, llm.FallbackAdapter)
+    assert isinstance(chain, FastFailoverLLM)
+    assert [m.model for m in chain._models] == ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]  # no duplicates
     monkeypatch.delenv("GEMINI_FALLBACK_MODELS")
-    assert not isinstance(providers.build_llm(), llm.FallbackAdapter)
+    assert len(providers.build_llm()._models) == 1
 
 
 # ---------- the browser test token ----------
@@ -129,3 +130,54 @@ def test_the_browser_token_is_for_one_room_and_dispatches_the_agent(monkeypatch)
     assert claims["roomConfig"]["agents"][0]["agentName"] == "jarvis"
     assert config.resolve_company(room, {}) == ("smile-dental", "web")
     assert claims["exp"] - claims["nbf"] <= 15 * 60 + 5
+
+
+def test_failover_gives_each_model_at_least_ten_seconds(monkeypatch):
+    """Gemini answers 400 'deadline 5s is too short' to anything under 10 seconds."""
+    monkeypatch.setenv("GEMINI_API_KEY", "g_test")
+    monkeypatch.setenv("GEMINI_FALLBACK_MODELS", "gemini-3.5-flash-lite")
+    assert providers.build_llm()._attempt_timeout >= 10
+    monkeypatch.setenv("VOICE_LLM_ATTEMPT_SECONDS", "3")  # a too-small setting is raised, not obeyed
+    assert providers.build_llm()._attempt_timeout >= 10
+    monkeypatch.setenv("VOICE_LLM_ATTEMPT_SECONDS", "20")
+    assert providers.build_llm()._attempt_timeout == 20
+
+
+def test_model_aliases_are_refused_because_they_break_tool_calls(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "g_test")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+    monkeypatch.setenv("GEMINI_FALLBACK_MODELS", "gemini-flash-lite-latest")
+    with pytest.raises(SystemExit, match="alias"):
+        providers.build_llm()
+    monkeypatch.setenv("GEMINI_FALLBACK_MODELS", "")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-flash-latest")
+    with pytest.raises(SystemExit, match="alias"):
+        providers.build_llm()
+
+
+def test_failover_stays_on_the_working_model(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "g_test")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+    monkeypatch.setenv("GEMINI_FALLBACK_MODELS", "gemini-3.5-flash-lite")
+    chain = providers.build_llm()
+    assert chain._models[0].model == "gemini-3.1-flash-lite"
+    # a failed model rests, and the same question stays on the model that is working
+    chain.rest(0)
+    from livekit.agents import llm
+    ctx = llm.ChatContext()
+    ctx.add_message(role="user", content="hours?")
+    chain._active = 1
+    ctx.items.append(llm.FunctionCallOutput(call_id="c", name="x", output="{}", is_error=False))
+    assert chain.order_for(ctx)[0] == 1
+
+
+def test_slow_model_limits_come_from_the_env_file(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "g_test")
+    chain = providers.build_llm()
+    assert (chain.first_token_seconds, chain.filler_after_seconds) == (6.0, 2.5)
+    assert chain.filler_text == "One moment please."
+    monkeypatch.setenv("VOICE_FIRST_TOKEN_SECONDS", "5")
+    monkeypatch.setenv("VOICE_FILLER_AFTER_SECONDS", "2")
+    monkeypatch.setenv("VOICE_FILLER_TEXT", "Working on it.")
+    chain = providers.build_llm()
+    assert (chain.first_token_seconds, chain.filler_after_seconds, chain.filler_text) == (5.0, 2.0, "Working on it.")

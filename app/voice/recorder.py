@@ -28,6 +28,13 @@ class CallRecorder:
         self.failed = False
         self.errors = 0
         self._waiting_user_metrics = None
+        self._real_ms = None      # how long the AI model really took for the current question
+        self._filler = False      # did the caller hear "One moment please." for it
+        self._switched = False    # did a backup model have to answer it
+        self.switches = 0
+        # Sentences the system says by itself (the "sorry, technical trouble" apology). They are
+        # kept in the transcript but never count as an answer to the caller's question.
+        self.not_answers = set()
 
     # --- things the voice session tells us -------------------------------------------
     def on_message(self, role: str, text: Optional[str], metrics: Optional[dict]) -> None:
@@ -37,12 +44,35 @@ class CallRecorder:
         self.lines.append({"role": role, "text": redact(text)[:MAX_TEXT]})
         if role == "user":
             self._waiting_user_metrics = metrics or {}
+            self._real_ms, self._filler, self._switched = None, False, False
+        elif text in self.not_answers:
+            return
         elif self._waiting_user_metrics is not None:
             # Only the FIRST answer after a question counts: that is what the caller waits for.
             measured = turn_latency(self._waiting_user_metrics, metrics or {})
             self._waiting_user_metrics = None
             if measured:
+                # The "One moment please." covers a slow model, so total_ms alone would look
+                # good. These extra fields keep the report honest about the model itself.
+                if self._real_ms is not None:
+                    measured["llm_real_ms"] = self._real_ms
+                if self._filler:
+                    measured["filler"] = True
+                if self._switched:
+                    measured["switched"] = True
                 self.turns.append(measured)
+            self._real_ms, self._filler, self._switched = None, False, False
+
+    def note_first_token(self, ms: int) -> None:
+        if self._real_ms is None:  # the first one counts: it is what the caller waited for
+            self._real_ms = max(0, int(ms))
+
+    def note_filler(self) -> None:
+        self._filler = True
+
+    def note_switch(self, from_model: str, to_model: str, reason: str) -> None:
+        self._switched = True
+        self.switches += 1
 
     def tool_finished(self, name: str, result) -> None:
         ok = isinstance(result, dict) and result.get("ok") is True

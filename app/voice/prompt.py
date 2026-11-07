@@ -10,6 +10,7 @@ Voice call rules (you are speaking out loud on a phone call, not typing):
 - If you did not understand, say so and ask the caller to repeat. Never guess a name, number, date or time.
 - Never read long text aloud. For anything long, offer to have it emailed to the address on file.
 - When the caller says goodbye, answer with one short goodbye.
+- Never say "one moment", "please wait" or "let me check" yourself. The phone system says "One moment please." automatically when an answer is slow. Just give the answer.
 """
 
 

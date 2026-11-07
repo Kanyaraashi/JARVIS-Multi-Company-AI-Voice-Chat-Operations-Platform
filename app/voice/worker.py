@@ -25,6 +25,7 @@ from app.agent_tools import API_BASE  # noqa: E402
 from app.privacy import install_log_redaction  # noqa: E402
 from app.voice import config, providers  # noqa: E402
 from app.voice.prompt import build_voice_prompt  # noqa: E402
+from app.voice.fast_llm import Hooks  # noqa: E402
 from app.voice.recorder import CallRecorder, send, spool  # noqa: E402
 from app.voice.tools import build_tools  # noqa: E402
 
@@ -46,8 +47,21 @@ class JarvisAgent(Agent):
             self.session.say(self._greeting)  # fixed text: no AI delay before the first words
 
 
+def bind_hooks(hooks: Hooks, recorder: CallRecorder) -> None:
+    """Lets the call record learn when the AI was slow, a filler was said, or a backup answered."""
+    hooks.on_first_token = recorder.note_first_token
+    hooks.on_filler = recorder.note_filler
+
+    def switched(from_model: str, to_model: str, reason: str) -> None:
+        log.warning("AI model %s -> %s (%s). The caller was not told.", from_model, to_model, reason)
+        recorder.note_switch(from_model, to_model, reason)
+
+    hooks.on_switch = switched
+
+
 def wire_events(session, recorder: CallRecorder, hang_up) -> None:
     """Connects the voice session to the call recorder."""
+    recorder.not_answers.add(APOLOGY)
 
     @session.on("conversation_item_added")
     def _item(event):
@@ -139,9 +153,11 @@ async def entrypoint(ctx: JobContext) -> None:  # pragma: no cover (needs a live
         ctx.shutdown(reason="api unavailable")
         return
 
-    parts = providers.build_session_parts()
+    hooks = Hooks()
+    parts = providers.build_session_parts(hooks)
     caller = attributes.get("sip.phoneNumber") if direction == "inbound" else None
     recorder = CallRecorder(room_name, direction, caller, parts["names"])
+    bind_hooks(hooks, recorder)
     session = AgentSession(**parts["kwargs"])
     agent = JarvisAgent(
         build_voice_prompt(company),
