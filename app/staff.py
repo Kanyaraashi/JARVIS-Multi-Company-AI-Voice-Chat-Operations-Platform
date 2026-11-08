@@ -31,6 +31,10 @@ class StaffTicket(BaseModel):
     priority: str
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
+    customer_email: Optional[str] = None
+    # The newest "your ticket changed" email for this ticket: sent, failed, pending or None (no email yet).
+    # "sent" means n8n accepted it. Whether the mailbox received it is up to the n8n email step.
+    update_email: Optional[Literal["sent", "failed", "pending"]] = None
     created_at: datetime
 
 
@@ -44,7 +48,13 @@ class PatchResult(BaseModel):
     changed: bool
 
 
-def to_staff(ticket: SupportTicket, customer: Optional[Customer]) -> dict:
+def email_state(status: Optional[str]) -> Optional[str]:
+    if status is None:
+        return None
+    return status if status in ("sent", "failed") else "pending"
+
+
+def to_staff(ticket: SupportTicket, customer: Optional[Customer], update_email: Optional[str] = None) -> dict:
     return {
         "id": ticket.id,
         "subject": ticket.subject,
@@ -53,6 +63,8 @@ def to_staff(ticket: SupportTicket, customer: Optional[Customer]) -> dict:
         "priority": ticket.priority,
         "customer_name": customer.full_name if customer else None,
         "customer_phone": customer.phone if customer else None,
+        "customer_email": customer.email if customer else None,
+        "update_email": email_state(update_email),
         "created_at": ticket.created_at,
     }
 
@@ -69,10 +81,23 @@ def list_tickets(
         query = query.where(SupportTicket.status == status)
     tickets = db.scalars(query.order_by(SupportTicket.id.desc()).limit(50)).all()
 
+    latest_email = {}   # ticket id -> status of its newest status email (events are read oldest first)
+    if tickets:
+        rows = db.execute(
+            select(WorkflowEvent.ticket_id, WorkflowEvent.status)
+            .where(
+                WorkflowEvent.company_id == company.id,
+                WorkflowEvent.event_type == "ticket_updated",
+                WorkflowEvent.ticket_id.in_([t.id for t in tickets]),
+            )
+            .order_by(WorkflowEvent.id)
+        ).all()
+        latest_email = {ticket_id: status for ticket_id, status in rows}
+
     result = []
     for ticket in tickets:
         customer = db.get(Customer, ticket.customer_id) if ticket.customer_id else None
-        result.append(to_staff(ticket, customer))
+        result.append(to_staff(ticket, customer, latest_email.get(ticket.id)))
     return result
 
 
@@ -98,7 +123,13 @@ def update_ticket(
     note = (payload.note or "").strip() or None
 
     if ticket.status == payload.status:  # nothing to change, so no email
-        return {"ticket": to_staff(ticket, customer), "changed": False}
+        newest = db.scalar(
+            select(WorkflowEvent.status)
+            .where(WorkflowEvent.company_id == company.id, WorkflowEvent.ticket_id == ticket.id,
+                   WorkflowEvent.event_type == "ticket_updated")
+            .order_by(WorkflowEvent.id.desc())
+        )
+        return {"ticket": to_staff(ticket, customer, newest), "changed": False}
     if ticket.status == "closed":
         raise HTTPException(status_code=409, detail="A closed ticket cannot be changed.")
 
@@ -140,7 +171,37 @@ def update_ticket(
 
     db.refresh(ticket)
     background_tasks.add_task(send_event, event.id)
-    return {"ticket": to_staff(ticket, customer), "changed": True}
+    return {"ticket": to_staff(ticket, customer, "pending"), "changed": True}
+
+
+@router.post("/tickets/{ticket_id}/resend-email")
+def resend_ticket_email(
+    ticket_id: int,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    company: Company = Depends(get_staff_company),
+    db: Session = Depends(get_db),
+):
+    """Sends the newest status email of a ticket again, but only if it did not go out the first time."""
+    ticket = db.scalar(
+        select(SupportTicket).where(SupportTicket.id == ticket_id, SupportTicket.company_id == company.id)
+    )
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    event = db.scalar(
+        select(WorkflowEvent)
+        .where(WorkflowEvent.company_id == company.id, WorkflowEvent.ticket_id == ticket.id,
+               WorkflowEvent.event_type == "ticket_updated")
+        .order_by(WorkflowEvent.id.desc())
+    )
+    if event is None:
+        raise HTTPException(status_code=404, detail="No status email has been queued for this ticket yet.")
+    if event.status == "sent":
+        raise HTTPException(status_code=409, detail="That email was already sent. Nothing to resend.")
+    audit.record(db, request, company, "ticket.resend_email", "ticket", ticket.id, {"event_id": event.id})
+    db.commit()
+    background_tasks.add_task(send_event, event.id)
+    return {"queued": True, "event_id": event.id}
 
 
 # ---------- company settings ----------
