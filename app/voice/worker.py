@@ -34,6 +34,7 @@ log = logging.getLogger("jarvis.voice")
 
 GOODBYE_TIME = "I'm sorry, we have reached the time limit for this call. Please call again if you need anything else. Goodbye."
 APOLOGY = "I'm sorry, I'm having technical trouble right now. Please try again in a few minutes."
+CAP_MESSAGE = "Thank you for calling. Our phone assistant is not available right now. Please contact us by email or call back later. Goodbye."
 GOODBYE_SILENT = "I can't hear you, so I'll end the call now. Please call again any time. Goodbye."
 
 
@@ -45,6 +46,18 @@ class JarvisAgent(Agent):
     async def on_enter(self) -> None:
         if self._greeting:
             self.session.say(self._greeting)  # fixed text: no AI delay before the first words
+
+
+def cap_reached(api_key: str, api_base: str = API_BASE, get=httpx.get) -> bool:
+    """True when the company has used up its monthly minutes. If the API cannot answer,
+    the call goes ahead (a customer is never turned away because of OUR counting problem)."""
+    try:
+        r = get(api_base + "/company/usage", headers={"X-API-Key": api_key}, timeout=5)
+        r.raise_for_status()
+        return r.json().get("allowed") is False
+    except Exception as exc:
+        log.warning("Could not check the monthly limit (%s); letting the call through.", type(exc).__name__)
+        return False
 
 
 def bind_hooks(hooks: Hooks, recorder: CallRecorder) -> None:
@@ -153,6 +166,9 @@ async def entrypoint(ctx: JobContext) -> None:  # pragma: no cover (needs a live
         ctx.shutdown(reason="api unavailable")
         return
 
+    blocked = await asyncio.to_thread(cap_reached, api_key)
+    if blocked:
+        log.warning("Company %s used all its monthly minutes: telling the caller and hanging up.", slug)
     hooks = Hooks()
     parts = providers.build_session_parts(hooks)
     caller = attributes.get("sip.phoneNumber") if direction == "inbound" else None
@@ -161,8 +177,8 @@ async def entrypoint(ctx: JobContext) -> None:  # pragma: no cover (needs a live
     session = AgentSession(**parts["kwargs"])
     agent = JarvisAgent(
         build_voice_prompt(company),
-        build_tools(api_key, uuid.uuid4().hex, recorder),
-        company["greeting"],
+        [] if blocked else build_tools(api_key, uuid.uuid4().hex, recorder),
+        "" if blocked else company["greeting"],
     )
 
     async def hang_up(message: str) -> None:
@@ -186,6 +202,9 @@ async def entrypoint(ctx: JobContext) -> None:  # pragma: no cover (needs a live
 
     ctx.add_shutdown_callback(finish)
     await session.start(agent=agent, room=ctx.room)
+    if blocked:
+        await hang_up(CAP_MESSAGE)
+        return
     limit_task["task"] = asyncio.create_task(time_limit())
     log.info("Call started: company=%s direction=%s room=%s stack=%s", slug, direction, room_name, config.stack())
 

@@ -1,0 +1,25 @@
+# Puts HTTPS in front of the API, so staff keys and the dashboard are never sent in plain text.
+#   docker compose -f docker-compose.yml -f docker-compose.voice.yml -f docker-compose.proxy.yml up -d --build
+# Needs Docker Compose 2.24 or newer (check: docker compose version) and DOMAIN=your.domain.com in .env
+services:
+  api:
+    ports: !reset []                        # the API is no longer reachable directly from the internet
+    environment:
+      TRUSTED_PROXY_COUNT: "1"              # Caddy is the one proxy in front: use the real caller address for rate limits
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN=your.domain.com in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+volumes:
+  caddy_data:
+  caddy_config:

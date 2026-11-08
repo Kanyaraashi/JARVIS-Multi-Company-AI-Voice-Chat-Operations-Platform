@@ -1,0 +1,31 @@
+# Adds the voice worker to your existing stack:
+#   docker compose -f docker-compose.yml -f docker-compose.voice.yml up -d --build
+# It reads .env.voice (made by: python -m app.voice.split_env), which holds ONLY voice settings,
+# so the worker never receives your database password or staff keys.
+services:
+  voice-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.voice
+    env_file: .env.voice
+    environment:
+      JARVIS_API_BASE: http://api:8000      # if your API service is not called "api" in docker-compose.yml, change this
+      VOICE_SPOOL_DIR: /app/voice_spool
+    volumes:
+      - ./voice_spool:/app/voice_spool
+    depends_on:
+      - api
+    restart: unless-stopped
+    stop_grace_period: 40s                  # lets a call that is ending save its record
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

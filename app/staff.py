@@ -18,7 +18,7 @@ from app.models import (
     TicketUpdate,
     WorkflowEvent,
 )
-from app.security import get_staff_company
+from app.security import get_staff_company, require_role
 
 router = APIRouter(prefix="/staff")
 
@@ -245,6 +245,7 @@ def update_settings(
     db: Session = Depends(get_db),
 ):
     """Changes this company's settings. Only the fields you send are changed."""
+    require_role(request, "owner", "manager")
     changes = payload.model_dump(exclude_unset=True)
     if "closed_weekdays" in changes:
         changes["closed_weekdays"] = sorted(set(changes["closed_weekdays"]))

@@ -1,0 +1,16 @@
+# Caddy gets and renews the HTTPS certificate for {$DOMAIN} by itself.
+{$DOMAIN} {
+	encode gzip
+
+	# Things that must never be reachable from the internet.
+	@private path /internal/* /docs /docs/* /redoc /openapi.json
+	respond @private 404
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	reverse_proxy api:8000
+}

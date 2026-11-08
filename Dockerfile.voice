@@ -1,0 +1,18 @@
+# The phone/voice worker (Step 30). Build:  docker compose -f docker-compose.yml -f docker-compose.voice.yml build voice-worker
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WORKDIR /app
+
+COPY requirements.txt requirements-voice.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-voice.txt
+
+COPY app ./app
+COPY voice_agent.py ./
+
+# Run as a normal user, never as root. voice_spool is where unsent call records wait.
+RUN useradd --create-home --uid 10001 jarvis && mkdir -p /app/voice_spool && chown -R jarvis:jarvis /app
+USER jarvis
+
+# "start" is the production mode (the "dev" mode you use on your PC reloads files and is not for servers).
+CMD ["python", "voice_agent.py", "start"]

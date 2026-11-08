@@ -207,6 +207,16 @@ select,input{padding:9px 12px;border:1px solid var(--line);border-radius:8px;bac
     <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
     <h1>Your phone line, at a glance.</h1>
     <p>Enter your staff key to see today&rsquo;s calls, appointments and anything waiting for a person. The key stays in this tab only and is forgotten when you close it.</p>
+    <form id="userform" class="signin" autocomplete="off">
+      <label for="co" class="hidden">Company</label>
+      <input id="co" type="text" placeholder="Company, for example smile-dental" autocomplete="off" spellcheck="false" required>
+      <label for="email" class="hidden">Email</label>
+      <input id="email" type="email" placeholder="Your email" autocomplete="off" required>
+      <label for="password" class="hidden">Password</label>
+      <input id="password" type="password" placeholder="Your password" autocomplete="off" required>
+      <button class="btn main" type="submit">Sign in</button>
+    </form>
+    <p class="hint">Or use a shared staff key:</p>
     <form id="loginform" autocomplete="off">
       <label for="key" class="hidden">Staff key</label>
       <input id="key" type="password" placeholder="Staff key, starts with stf_" autocomplete="off" spellcheck="false" required>
@@ -595,6 +605,19 @@ function setFilter(value) {
   $("f-failed").setAttribute("aria-pressed", value ? "true" : "false");
   busy = false; load();
 }
+$("userform").addEventListener("submit", function (e) {
+  e.preventDefault();
+  var body = JSON.stringify({company: $("co").value.trim(), email: $("email").value.trim(), password: $("password").value});
+  $("password").value = "";
+  fetch("/staff/login", {method: "POST", headers: {"Content-Type": "application/json"}, body: body})
+    .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, status: r.status, data: d}; }); })
+    .then(function (res) {
+      if (!res.ok) { message(res.status === 429 ? "Too many wrong passwords. Try again in a few minutes." : "Wrong company, email or password.", "error"); return; }
+      message(""); key = res.data.token; load();
+      if (!timer) timer = setInterval(function () { load(true); }, 30000);
+    })
+    .catch(function () { message("Could not reach the server. Try again.", "error"); });
+});
 $("loginform").addEventListener("submit", function (e) {
   e.preventDefault();
   key = $("key").value.trim(); $("key").value = "";
@@ -607,7 +630,10 @@ $("days").addEventListener("change", function () { load(); });
 ["open", "in_progress", "resolved", "all"].forEach(function (v) { $("t-" + v).addEventListener("click", function () { setTicketFilter(v); }); });
 $("f-all").addEventListener("click", function () { setFilter(""); });
 $("f-failed").addEventListener("click", function () { setFilter("failed"); });
-$("signout").addEventListener("click", function () { stop(true); message(""); });
+$("signout").addEventListener("click", function () {
+  if (key && key.indexOf("stu_") === 0) { fetch("/staff/logout", {method: "POST", headers: {"X-API-Key": key}}).catch(function () {}); }
+  stop(true); message("");
+});
 </script>
 </body>
 </html>

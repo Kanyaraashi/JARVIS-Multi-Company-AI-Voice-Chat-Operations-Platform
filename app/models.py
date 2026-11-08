@@ -11,6 +11,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
     text,
     true,
@@ -55,6 +56,8 @@ class Company(Base):
     closed_weekdays: Mapped[list[int]] = mapped_column(
         ARRAY(Integer), default=lambda: [6], server_default=text("'{6}'")
     )
+    # Most call minutes per calendar month (company time zone). NULL means no limit.
+    monthly_minutes_cap: Mapped[Optional[int]] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -330,6 +333,43 @@ class CallRecord(Base):
     tools_used: Mapped[list] = mapped_column(JSONB)  # tool name and ok, never the details
     latency_turns: Mapped[list] = mapped_column(JSONB)
     providers: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class StaffUser(Base):
+    """One real person who logs in with an email and a password (Step 32)."""
+    __tablename__ = "staff_users"
+    __table_args__ = (
+        UniqueConstraint("company_id", "email", name="uq_staff_user_email"),
+        CheckConstraint("role IN ('owner', 'manager', 'agent')", name="ck_staff_user_role"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    email: Mapped[str] = mapped_column(String(200))          # always stored in lower case
+    full_name: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(10))
+    password_hash: Mapped[str] = mapped_column(String(300))
+    is_active: Mapped[bool] = mapped_column(default=True, server_default=true())
+    failed_logins: Mapped[int] = mapped_column(default=0, server_default="0")
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class StaffSession(Base):
+    """A login that expires. Only a fingerprint of the token is stored."""
+    __tablename__ = "staff_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("staff_users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked: Mapped[bool] = mapped_column(default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

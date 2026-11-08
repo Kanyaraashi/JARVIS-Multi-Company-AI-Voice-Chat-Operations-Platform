@@ -1,4 +1,6 @@
 """Writes the audit trail: who changed what, and when."""
+import ipaddress
+import os
 from typing import Optional
 
 from fastapi import Request
@@ -8,7 +10,28 @@ from app.models import AuditLog, Company
 
 
 def client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    """The caller's address, for rate limits and the audit log.
+
+    Behind a proxy (Caddy) every request seems to come from the proxy itself, so ONE wrong key would
+    lock out EVERYONE. Set TRUSTED_PROXY_COUNT=1 when exactly one proxy of yours sits in front. We then
+    read X-Forwarded-For from the RIGHT, because the left side can be faked by the caller.
+    With the default 0 the header is ignored completely."""
+    peer = request.client.host if request.client else "unknown"
+    try:
+        trusted = int(os.getenv("TRUSTED_PROXY_COUNT", "0"))
+    except ValueError:
+        trusted = 0
+    if trusted <= 0:
+        return peer
+    parts = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+    if len(parts) < trusted:
+        return peer
+    candidate = parts[-trusted]
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return peer
+    return candidate
 
 
 def record(
