@@ -34,7 +34,8 @@ def test_the_page_script_never_stores_the_key_or_inserts_raw_html(client):
                       "location.hash"):
         assert forbidden not in html, forbidden
     assert re.findall(r"""(?:src|href)\s*=\s*["']https?://""", html) == []        # no outside files
-    assert "http://" not in html.split("<script")[1] and "https://" not in html.split("<script")[1]
+    script = html.split("<script", 1)[1].replace("http://www.w3.org/2000/svg", "")
+    assert "http://" not in script and "https://" not in script
 
 
 def test_the_page_is_not_in_the_api_docs_and_the_api_still_needs_keys(client, world):

@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: pip install -r requirements.txt -r requirements-voice.txt pytest
+      - run: pip install -r requirements.txt -r requirements-voice.txt -r requirements-chat.txt pytest
       - name: Migrations apply to an empty database
         run: alembic upgrade head
       - name: Tests (business logic, tenant isolation, security)

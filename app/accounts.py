@@ -211,7 +211,6 @@ def change_user(user_id: int, payload: UserPatch, request: Request,
         problem = password_problem(changes["password"] or "")
         if problem:
             raise HTTPException(status_code=422, detail=problem)
-    actor = request.state.actor
     demoting = changes.get("role", user.role) != "owner" or changes.get("is_active", user.is_active) is False
     if user.role == "owner" and demoting:
         others = db.scalar(select(StaffUser.id).where(StaffUser.company_id == company.id, StaffUser.role == "owner",

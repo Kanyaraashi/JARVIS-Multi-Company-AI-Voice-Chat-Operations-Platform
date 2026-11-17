@@ -19,7 +19,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from livekit.agents import APIConnectionError, APIConnectOptions, llm
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN

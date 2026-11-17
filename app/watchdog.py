@@ -83,8 +83,6 @@ def run_once(env=os.environ, get: Callable = httpx.get, post: Callable = httpx.p
         api_ok, note = r.status_code == 200, f"HTTP {r.status_code}"
     except Exception:
         api_ok, note = False, "no connection"
-    db_problem_note = None
-    db = None
     url = env.get("ADMIN_DATABASE_URL") or env.get("DATABASE_URL")
     engine = create_engine(url) if url else None
     problems: List[str] = []

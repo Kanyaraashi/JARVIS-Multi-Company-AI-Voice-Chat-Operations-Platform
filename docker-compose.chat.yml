@@ -1,0 +1,28 @@
+# Adds the customer web chat (the QR code page) to your existing stack:
+#   docker compose -f docker-compose.yml -f docker-compose.voice.yml -f docker-compose.chat.yml -f docker-compose.proxy.yml up -d --build
+# It reads .env.chat (made by: python -m app.webchat.split_env), which holds ONLY chat settings, so this
+# service never receives your database password or staff keys. It is reached only through Caddy (https).
+services:
+  webchat:
+    build:
+      context: .
+      dockerfile: Dockerfile.chat
+    env_file: .env.chat
+    environment:
+      API_BASE_URL: http://api:8000        # if your API service is not called "api" in docker-compose.yml, change this
+      TRUSTED_PROXY_COUNT: "1"             # Caddy is the one proxy in front: use the real visitor address for rate limits
+    depends_on:
+      - api
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

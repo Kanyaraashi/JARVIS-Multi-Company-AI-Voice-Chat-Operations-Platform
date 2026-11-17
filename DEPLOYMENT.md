@@ -103,3 +103,51 @@ Actions tab, expect a green tick.
 **Paid tiers.** Free tiers are for testing. Before real customers: Gemini paid tier (free-tier prompts may be used to improve
 Google products, so customer calls should not go through it), a paid Deepgram or Sarvam plan, LiveKit Cloud paid plan, a server of at
 least 2 vCPU / 4 GB. Check each provider's current pricing page; I could not verify the numbers.
+
+## 10. Customer chat from a QR code
+
+Customers scan a QR code, a chat page opens on their phone, and the same AI assistant helps them type
+their details instead of saying them. The phone line keeps working as before; the page shows a small
+"Call us" link when `CHAT_PHONE_<COMPANY>` is set.
+
+**What it can do:** answer questions, book, change and cancel visits, register a new customer, raise a support
+ticket, check a ticket, email the latest invoice, and hand over to a person.
+
+**On phones.** It uses the phone's own font and text-size setting, keeps clear of notches and the Android/iPhone
+navigation bar, stays above the keyboard, and has a Back arrow. The phone's own back button or swipe returns to the
+menu instead of leaving the page.
+
+**Each company has its own QR code, made and revoked like a staff key.** The code is a random string in the address
+(`/c/<code>`), so the company name is not in the link and nobody can guess another company's page.
+
+    python -m app.webchat.qr new smile-dental              # a new code + QR files in qr\ (older codes keep working)
+    python -m app.webchat.qr new smile-dental --replace    # a new code and every older QR stops working
+    python -m app.webchat.qr show smile-dental             # remake the QR files for the current codes
+    python -m app.webchat.qr revoke smile-dental           # switch the company's QR codes off
+    python -m app.webchat.qr list
+
+Use one code per place (front desk, website, flyer) by running `new` once each, so you can switch one off alone.
+A printed QR can be photographed, so it is not a secret like a staff key: that is why codes can be replaced at any time and
+why the chat has its own limits. After any change run `python -m app.webchat.split_env` and restart the chat service.
+The printable poster is at `PUBLIC_BASE_URL/c/<code>/poster` (it has a Print button).
+
+**Safety on a web page.** On a call the number comes from caller ID. On a web page anyone can type any
+number, so the web version is stricter than the phone: it never says a name or an email address; it has no
+"list my appointments" (to change or cancel, the customer must give the phone number AND the exact date and
+time of the visit); five wrong guesses stop those tools for that chat; booking, tickets, handoffs and
+invoice emails have a per-chat limit; and there are per-visitor, per-chat and per-day message limits.
+Guessing QR codes is rate limited too. A text-message code would be stronger still, and can be added later.
+
+Add to `.env` (the company's `JARVIS_KEY_<COMPANY>` and `GEMINI_API_KEY` must already be there):
+
+    PUBLIC_BASE_URL=https://jarvis.example.com
+    CHAT_PHONE_SMILE_DENTAL=+919876543210     # optional: the "Call us" link
+    CHAT_COUNTRY_CODE=+91                      # optional, +91 is the default
+    # optional limits: CHAT_MESSAGES_PER_MINUTE=12  CHAT_SESSIONS_PER_HOUR=20  CHAT_MAX_TURNS=40
+    #                  CHAT_SESSION_MINUTES=30  CHAT_DAILY_MESSAGES=800  CHAT_BAD_CODES_PER_MINUTE=10
+
+Run it on a server:
+
+    python -m app.webchat.qr new smile-dental
+    python -m app.webchat.split_env
+    docker compose -f docker-compose.yml -f docker-compose.voice.yml -f docker-compose.chat.yml -f docker-compose.proxy.yml up -d --build

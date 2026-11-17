@@ -12,5 +12,11 @@
 		-Server
 	}
 
-	reverse_proxy api:8000
+	# The customer chat (QR code page) is its own small service; everything else is the API.
+	handle /c/* {
+		reverse_proxy webchat:8100
+	}
+	handle {
+		reverse_proxy api:8000
+	}
 }

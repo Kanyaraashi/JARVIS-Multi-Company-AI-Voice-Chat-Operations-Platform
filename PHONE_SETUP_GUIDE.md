@@ -98,24 +98,29 @@ Add the number to `.env` first. Format: `number=company-slug`, comma separated, 
 VOICE_NUMBERS=+14155550100=smile-dental
 ```
 
-Generate the files and create the dispatch rule:
+Find your number's ID (it starts with `PN_`; if the table is cut off use `lk number list --json`, or copy it from the dashboard under Phone Numbers):
 
 ```powershell
-python -m app.voice.phone_setup             # writes livekit\inbound-trunk.json and livekit\dispatch-rule.json
-lk sip dispatch create livekit\dispatch-rule.json     # prints a rule ID like SDR_xxxx. Copy it
+lk number list
 ```
 
-LiveKit Phone Numbers need NO inbound trunk, so skip `lk sip inbound create` on this path. Attach the rule to the number:
+Generate the files with that ID in them and create the dispatch rule:
 
 ```powershell
-lk number update --id <PHONE_NUMBER_ID> --sip-dispatch-rule-id <DISPATCH_RULE_ID>
-lk number list                              # the number should now show the rule
+python -m app.voice.phone_setup --trunk-id PN_xxxxxxxx      # writes livekit\inbound-trunk.json and livekit\dispatch-rule.json
+lk sip dispatch create livekit\dispatch-rule.json           # prints a rule ID like SDR_xxxx
+lk sip dispatch list                                        # your rule must show the PN_ number under trunk IDs
 ```
+
+LiveKit Phone Numbers need NO inbound trunk, so skip `lk sip inbound create` on this path. **Do not use `lk number update`**: a rule that is not tied
+to a number is a catch-all, and LiveKit answers "Failed to update phone number" for those. Putting the `PN_` ID inside the rule (`trunk_ids`) does the tying.
+If you get "Dispatch rule for the same trunk, inbound number ... already exists", the rule is already there: run `lk sip dispatch list`, and if it is the
+wrong one, `lk sip dispatch delete <SDR_ID>` and create it again.
 
 The dispatch file that was generated looks like this (it names the agent `jarvis`, which must match `AGENT_NAME` in code):
 
 ```json
-{ "dispatch_rule": { "name": "JARVIS inbound",
+{ "dispatch_rule": { "name": "JARVIS inbound", "trunk_ids": [ "PN_xxxxxxxx" ],
     "rule": { "dispatch_rule_individual": { "room_prefix": "call-" } },
     "room_config": { "agents": [ { "agent_name": "jarvis" } ] } } }
 ```
@@ -202,6 +207,7 @@ Console method (easiest):
 python -m app.voice.phone_setup
 lk sip inbound create livekit\inbound-trunk.json     # prints a trunk ID ST_xxxx
 lk sip dispatch create livekit\dispatch-rule.json    # prints a rule ID SDR_xxxx
+# tip: python -m app.voice.phone_setup --trunk-id ST_xxxx  (the trunk ID printed above) ties the rule to your trunk before you create it
 lk sip inbound list                                  # your number must appear in "numbers"
 lk sip dispatch list
 ```

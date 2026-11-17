@@ -6,6 +6,14 @@ You run this on your own machine or server. Customers never can.
   python -m app.owner user-new <slug> <email> "<Full name>" --role owner|manager|agent   (asks for the password)
   python -m app.owner overview                           every company: minutes used, cap, calls, open tickets
   python -m app.owner company-off <slug> | company-on <slug>
+  python -m app.owner hours <slug> [--open 9] [--close 18] [--slot 30] [--closed sun|sat,sun|none] [--timezone Asia/Kolkata] [--staff-email x@y.com]
+  python -m app.owner text <slug> [--greeting "..."] [--instructions "..."]
+  python -m app.owner faq-add <slug> "<question>" "<answer>"
+  python -m app.owner faq-import <slug> faqs.csv [--check]        columns: question, answer
+  python -m app.owner faq-list <slug>
+  python -m app.owner customers-import <slug> people.csv [--country-code +91] [--check]    columns: full_name, phone, email
+  python -m app.owner ai-key-new <slug> [--replace]               a new AI key (the old ones stop working with --replace)
+  python -m app.owner onboard company.json [--check]              creates a whole company from one file (see COMPANY_ONBOARDING.md)
 
 company-new also prints a fresh AI key and staff key ONCE. Put the AI key in .env as JARVIS_KEY_<SLUG> for the voice worker.
 """
@@ -23,7 +31,8 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from app.accounts import hash_password, password_problem
-from app.models import ApiKey, AuditLog, Company, StaffKey, StaffUser, SupportTicket
+from app import owner_setup as setup
+from app.models import ApiKey, AuditLog, Company, Faq, StaffKey, StaffUser, SupportTicket
 from app.security import hash_key
 from app.usage import usage_for
 
@@ -66,6 +75,74 @@ def new_company(db, slug, name, agent, tz, cap):
     return ai, staff
 
 
+SETUP_COMMANDS = {"hours", "text", "faq-add", "faq-import", "faq-list", "customers-import", "ai-key-new", "onboard"}
+DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def env_name(slug):
+    return "JARVIS_KEY_" + slug.upper().replace("-", "_")
+
+
+def run_setup(db, args):
+    """The setup commands. Each one prints what it did. SetupError (a plain message) is handled by main()."""
+    if args.cmd == "onboard":
+        plan = setup.read_onboarding(args.file)
+        if not SLUG.match(plan["slug"]):
+            raise setup.SetupError("Slug: 2-49 characters, lower case letters, digits and dashes (for example smile-dental).")
+        if db.scalar(select(Company).where(Company.slug == plan["slug"])):
+            raise setup.SetupError(f"Company '{plan['slug']}' already exists. Use hours, text, faq-import or customers-import to change it.")
+        print(f"File is fine: {plan['name']} ({plan['slug']}), {len(plan['faqs'])} FAQ(s).")
+        if args.check:
+            print("Nothing was created (--check)."); return
+        ai, staff = new_company(db, plan["slug"], plan["name"], plan["agent"], plan["timezone"], plan["cap"])
+        company = find(db, plan["slug"])
+        h = plan["hours"]
+        setup.set_hours(db, company, h["open_hour"], h["close_hour"], h["slot"], h["closed"], None, h["staff_email"])
+        if plan["greeting"] or plan["instructions"]:
+            setup.set_text(db, company, plan["greeting"], plan["instructions"])
+        added, _ = setup.add_faqs(db, company, plan["faqs"])
+        print(f"Created {plan['slug']} with {added} FAQ(s). These keys are shown ONCE, save them now:\n"
+              f"  AI key (voice worker and chat): {ai}\n  staff key:                      {staff}")
+        print(f"Next: add {env_name(plan['slug'])}={ai} to .env, then the steps in COMPANY_ONBOARDING.md (login, QR, phone, restart).")
+        return
+    company = find(db, args.slug)
+    if args.cmd == "hours":
+        closed = None if args.closed is None else setup.parse_days(args.closed)
+        setup.set_hours(db, company, args.open_hour, args.close_hour, args.slot, closed, args.timezone, args.staff_email)
+        days = ", ".join(DAY_NAMES[d] for d in (company.closed_weekdays or [])) or "none"
+        print(f"{args.slug}: open {company.open_hour}:00 to {company.close_hour}:00, {company.slot_minutes}-minute slots, closed: {days}, time zone {company.timezone}.")
+    elif args.cmd == "text":
+        setup.set_text(db, company, args.greeting, args.instructions)
+        print(f"{args.slug}: updated. New calls and chats use it straight away.")
+    elif args.cmd == "faq-add":
+        added, skipped = setup.add_faqs(db, company, [(args.question, args.answer)])
+        print(f"{args.slug}: added." if added else f"{args.slug}: that question is already there, nothing changed.")
+    elif args.cmd == "faq-import":
+        added, skipped = setup.import_faqs_csv(db, company, args.file, args.check)
+        print(f"{args.slug}: {'would add' if args.check else 'added'} {added}, already there {skipped}." + (" Nothing was written (--check)." if args.check else ""))
+    elif args.cmd == "faq-list":
+        faqs = db.scalars(select(Faq).where(Faq.company_id == company.id).order_by(Faq.id)).all()
+        print(f"{args.slug}: {len(faqs)} FAQ(s)")
+        for f in faqs:
+            print(f"  [{f.id}] {f.question}\n       {f.answer[:90]}{'...' if len(f.answer) > 90 else ''}")
+    elif args.cmd == "customers-import":
+        r = setup.import_customers_csv(db, company, args.file, args.country_code, args.check)
+        print(f"{args.slug}: {'would add' if args.check else 'added'} {r['added']}, already there {r['existing']}, rejected {len(r['bad'])}."
+              + (" Nothing was written (--check)." if args.check else ""))
+        for line, why in r["bad"][:20]:
+            print(f"  line {line}: {why}")
+        if len(r["bad"]) > 20:
+            print(f"  ... and {len(r['bad']) - 20} more")
+    elif args.cmd == "ai-key-new":
+        raw, retired = setup.new_ai_key(db, company, args.replace)
+        print(f"New AI key for {args.slug} (shown ONCE, save it now):\n  {raw}")
+        print(f"Put it in .env as {env_name(args.slug)}={raw}, then run python -m app.voice.split_env and python -m app.webchat.split_env and restart the worker and the chat service.")
+        if retired:
+            print(f"{retired} old AI key(s) were switched off: phone and chat for {args.slug} stay down until the new key is in place.")
+        else:
+            print("The old AI key still works. Add --replace to switch it off once the new one is in place.")
+
+
 def main(argv=None) -> int:
     load_dotenv()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -76,6 +153,17 @@ def main(argv=None) -> int:
     u = sub.add_parser("user-new"); u.add_argument("slug"); u.add_argument("email"); u.add_argument("name")
     u.add_argument("--role", choices=["owner", "manager", "agent"], default="owner"); u.add_argument("--password", help="avoid: it stays in your shell history; leave out to be asked")
     sub.add_parser("overview")
+    h = sub.add_parser("hours"); h.add_argument("slug"); h.add_argument("--open", type=int, dest="open_hour")
+    h.add_argument("--close", type=int, dest="close_hour"); h.add_argument("--slot", type=int); h.add_argument("--closed")
+    h.add_argument("--timezone"); h.add_argument("--staff-email", dest="staff_email")
+    t = sub.add_parser("text"); t.add_argument("slug"); t.add_argument("--greeting"); t.add_argument("--instructions")
+    fa = sub.add_parser("faq-add"); fa.add_argument("slug"); fa.add_argument("question"); fa.add_argument("answer")
+    fi = sub.add_parser("faq-import"); fi.add_argument("slug"); fi.add_argument("file"); fi.add_argument("--check", action="store_true")
+    sub.add_parser("faq-list").add_argument("slug")
+    ci = sub.add_parser("customers-import"); ci.add_argument("slug"); ci.add_argument("file")
+    ci.add_argument("--country-code", default="+91"); ci.add_argument("--check", action="store_true")
+    ak = sub.add_parser("ai-key-new"); ak.add_argument("slug"); ak.add_argument("--replace", action="store_true")
+    ob = sub.add_parser("onboard"); ob.add_argument("file"); ob.add_argument("--check", action="store_true")
     for name in ("company-off", "company-on"):
         sub.add_parser(name).add_argument("slug")
     args = ap.parse_args(argv)
@@ -124,11 +212,15 @@ def main(argv=None) -> int:
                     cap = "none" if use.cap_minutes is None else f"{use.cap_minutes}"
                     flag = "" if use.allowed else "  <- OVER CAP"
                     print(f"{company.slug:20} {'yes' if company.is_active else 'NO':3} {use.used_minutes:>9} {cap:>8} {use.calls:>6} {open_t:>13}{flag}")
+            elif args.cmd in SETUP_COMMANDS:
+                run_setup(db, args)
             else:
                 company = find(db, args.slug)
                 company.is_active = args.cmd == "company-on"
                 log(db, company, "company.on" if company.is_active else "company.off"); db.commit()
                 print(f"{args.slug} is now {'ON' if company.is_active else 'OFF (its keys and logins stop working)'}.")
+        except setup.SetupError as exc:
+            db.rollback(); print(exc); return 1
         except ValueError:
             print("The cap must be a whole number of minutes, or 'none'."); return 2
         except SystemExit as exc:

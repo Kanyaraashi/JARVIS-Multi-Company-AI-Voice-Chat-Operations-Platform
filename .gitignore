@@ -11,3 +11,16 @@ voice_spool/
 voice_spool/
 voice_spool/
 voice_spool/
+
+phone_diag.txt
+numbers.txt
+rules.txt
+livekit/
+qr/
+*.zip
+Jarvis_Overview.pdf
+.env
+.env.*
+!.env.example
+backups/
+.venv/

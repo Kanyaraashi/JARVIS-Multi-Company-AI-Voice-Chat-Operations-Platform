@@ -10,7 +10,6 @@ a call record.
 """
 import asyncio
 import logging
-import os
 import uuid
 
 import httpx

@@ -126,3 +126,26 @@ def test_a_number_setting_with_letters_is_caught_before_it_crashes_the_program(m
     assert {r.name for r in bad} == {"ai attempts per model", "voice first token seconds"}
     assert "without letters" in bad[0].message and "'2s'" in [r.message for r in bad if "attempts" in r.name][0]
     assert any(r.name == "number settings" for r in levels(GOOD))
+
+
+def test_dispatch_rule_can_be_tied_to_a_phone_number_or_trunk(tmp_path, monkeypatch):
+    from app.voice import phone_setup
+    monkeypatch.setenv("VOICE_NUMBERS", "+14155550100=smile-dental")
+    assert phone_setup.main(["--out", str(tmp_path), "--trunk-id", "PN_abc123XYZ"]) == 0
+    rule = json.loads((tmp_path / "dispatch-rule.json").read_text())["dispatch_rule"]
+    assert rule["trunk_ids"] == ["PN_abc123XYZ"] and rule["rule"]["dispatch_rule_individual"]["room_prefix"] == "call-"
+    assert phone_setup.main(["--out", str(tmp_path)]) == 0
+    assert "trunk_ids" not in json.loads((tmp_path / "dispatch-rule.json").read_text())["dispatch_rule"]
+
+
+def test_a_real_livekit_number_id_with_an_underscore_inside_is_accepted(tmp_path, monkeypatch):
+    monkeypatch.setenv("VOICE_NUMBERS", "+14155550100=smile-dental")
+    assert phone_setup.main(["--out", str(tmp_path), "--trunk-id", "PN_PPN_ShLxrppoNLze"]) == 0
+
+
+def test_a_wrong_looking_trunk_id_is_refused(tmp_path, monkeypatch, capsys):
+    from app.voice import phone_setup
+    monkeypatch.setenv("VOICE_NUMBERS", "+14155550100=smile-dental")
+    for bad in ("PPN_XXXXXXX", "SDR_abcdef12", "PN_", "abc"):
+        assert phone_setup.main(["--out", str(tmp_path), "--trunk-id", bad]) == 1
+    assert not (tmp_path / "dispatch-rule.json").exists() and "PN_" in capsys.readouterr().out
