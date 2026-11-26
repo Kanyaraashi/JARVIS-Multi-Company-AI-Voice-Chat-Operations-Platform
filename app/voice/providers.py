@@ -11,7 +11,9 @@ import os
 # plugin from inside a call (on Windows each call runs in a background thread).
 from livekit.plugins import deepgram, google, sarvam, silero  # noqa: E402
 
+from app import languages  # noqa: E402
 from app.voice import config  # noqa: E402
+from app.voice.languages import LanguageSwitcher  # noqa: E402
 from app.voice.fast_llm import FastFailoverLLM, Hooks  # noqa: E402
 
 
@@ -63,32 +65,49 @@ def build_llm(hooks=None):
 
 
 def build_speech(stack: str):
-    """Returns (stt, tts, vad, turn_handling, names)."""
-    lang = config.language()
+    """Returns (stt, tts, vad, turn_handling, names, switcher). The switcher is None unless the line offers several languages."""
+    allowed = languages.voice_languages()
+    lang = allowed[0]
+    many = len(allowed) > 1
     if stack == "deepgram":
         if not os.getenv("DEEPGRAM_API_KEY"):
             raise SystemExit("DEEPGRAM_API_KEY is missing in .env")
         stt = deepgram.STT(model="nova-3", language=lang)
         tts = deepgram.TTS(model=os.getenv("DEEPGRAM_TTS_MODEL", "aura-2-andromeda-en"))
-        return stt, tts, silero.VAD.load(), None, {"stt": "deepgram nova-3", "tts": "deepgram aura-2"}
+        return stt, tts, silero.VAD.load(), None, {"stt": "deepgram nova-3", "tts": "deepgram aura-2"}, None
 
     if not os.getenv("SARVAM_API_KEY"):
         raise SystemExit("SARVAM_API_KEY is missing in .env")
-    stt = sarvam.STTRealtime(language=lang, stream_type="balanced")
+    mode = os.getenv("SARVAM_STT_MODE", "realtime").strip().lower()
+    if mode not in ("realtime", "standard"):
+        raise SystemExit(f"SARVAM_STT_MODE must be realtime or standard (you wrote '{mode}').")
+    override = os.getenv("SARVAM_STT_LANGUAGE", "").strip()
     speaker = os.getenv("SARVAM_SPEAKER") or None
+    if mode == "realtime":
+        # "auto": Sarvam follows whichever listed language the caller speaks. One language: it listens for that one.
+        stt_language = override or ("auto" if many else languages.STT_CODE.get(lang, lang))
+        stt = sarvam.STTRealtime(language=stt_language, stream_type="balanced")
+        # Sarvam listens with its own voice detection, so LiveKit's turn detector follows it.
+        vad, turn_handling, stt_name, fixed = None, {"turn_detection": "stt"}, "sarvam realtime", stt_language != "auto"
+    else:
+        # The older, non-streaming listener: a little slower per sentence, but it needs no realtime access.
+        stt_language = override or ("unknown" if many else lang)
+        stt = sarvam.STT(language=stt_language, model="saaras:v4")
+        vad, turn_handling, stt_name, fixed = silero.VAD.load(), None, "sarvam saaras:v4", False
     tts = sarvam.TTS(target_language_code=lang, model="bulbul:v3", speaker=speaker)
-    # Sarvam listens with its own voice detection, so LiveKit's turn detector follows it.
-    return stt, tts, None, {"turn_detection": "stt"}, {"stt": "sarvam realtime", "tts": "sarvam bulbul:v3"}
+    switcher = LanguageSwitcher(allowed, tts=tts, stt=stt, stt_fixed=fixed) if many else None
+    return stt, tts, vad, turn_handling, {"stt": stt_name, "tts": "sarvam bulbul:v3"}, switcher
 
 
 def build_session_parts(hooks=None) -> dict:
     """Everything AgentSession needs, plus the provider names saved on each call record."""
-    stt, tts, vad, turn_handling, names = build_speech(config.stack())
+    stt, tts, vad, turn_handling, names, switcher = build_speech(config.stack())
     chain = build_llm(hooks)
     parts = {"stt": stt, "tts": tts, "llm": chain, "preemptive_generation": False}
     if vad is not None:
         parts["vad"] = vad
     if turn_handling is not None:
         parts["turn_handling"] = turn_handling
-    names = {**names, "llm": os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite").strip(), "stack": config.stack()}
-    return {"kwargs": parts, "names": names}
+    names = {**names, "llm": os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite").strip(), "stack": config.stack(),
+             "languages": ",".join(languages.voice_languages())}
+    return {"kwargs": parts, "names": names, "switcher": switcher}

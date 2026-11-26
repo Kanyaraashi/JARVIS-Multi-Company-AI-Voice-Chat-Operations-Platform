@@ -84,34 +84,38 @@ button{cursor:pointer;touch-action:manipulation}
 .composer input::placeholder{color:var(--mute);opacity:1}
 .send{width:2.875rem;height:2.875rem;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);font-size:1.25rem;flex:none}
 .send[disabled]{opacity:.6;cursor:default}
+.langs{display:flex;flex-wrap:wrap;gap:.5rem;margin:.25rem 0 .5rem}
+.lg{min-height:2.75rem;padding:.375rem .875rem;border:1px solid var(--line);border-radius:999px;background:var(--bg)}
+.lg[aria-pressed="true"]{border-color:var(--accent);background:var(--soft);font-weight:600}
 @media (max-width:23rem){.who span{display:none}.dot{width:1.875rem;height:1.875rem}}
 @media (max-height:30rem){.welcome h1{margin-top:.75rem;font-size:1.5rem}.welcome p{display:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 </style>
 </head>
-<body data-code="__CODE__">
+<body data-code="__CODE__" data-lang="__LANG__" data-langs="__LANGS__">
 <div class="app" id="app">
   <header class="bar">
-    <button class="back hidden" id="back" type="button" aria-label="Back to the menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-    <div class="who"><div class="dot" id="mark" aria-hidden="true"></div><div><b id="name">Chat with us</b><span id="sub">Usually replies in seconds</span></div></div>
-    <a class="call hidden" id="call" href="#">Call us</a>
+    <button class="back hidden" id="back" type="button" aria-label="Back to the menu" data-ta="back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <div class="who"><div class="dot" id="mark" aria-hidden="true"></div><div><b id="name">Chat with us</b><span id="sub" data-t="sub">Usually replies in seconds</span></div></div>
+    <a class="call hidden" id="call" href="#" data-t="call">Call us</a>
   </header>
   <main class="scroll" id="scroll">
     <section class="welcome" id="welcome">
-      <h1>How can we help?</h1>
-      <p>Type your request and our assistant will sort it out. Typing keeps your name and number accurate.</p>
-      <button class="opt first" type="button" data-say="I would like to book an appointment">Book an appointment <i>&rsaquo;</i></button>
-      <button class="opt" type="button" data-say="I want to change or cancel my appointment">Change or cancel a visit <i>&rsaquo;</i></button>
-      <button class="opt" type="button" data-say="I want to check on a request I made">Check on a request <i>&rsaquo;</i></button>
-      <button class="opt" type="button" data-say="I have a question about my invoice">Invoice question <i>&rsaquo;</i></button>
-      <button class="opt" type="button" data-say="I would like to talk to a person">Talk to a person <i>&rsaquo;</i></button>
-      <p class="hint" id="callhint" hidden>Prefer to speak? Call us any time.</p>
+      <div class="langs" id="langs" role="group" aria-label="Language" data-ta="lang_label" hidden></div>
+      <h1 data-t="h1">How can we help?</h1>
+      <p data-t="intro">Type your request and our assistant will sort it out. Typing keeps your name and number accurate.</p>
+      <button class="opt first" type="button" data-say="I would like to book an appointment"><span data-t="opt_book">Book an appointment</span> <i>&rsaquo;</i></button>
+      <button class="opt" type="button" data-say="I want to change or cancel my appointment"><span data-t="opt_change">Change or cancel a visit</span> <i>&rsaquo;</i></button>
+      <button class="opt" type="button" data-say="I want to check on a request I made"><span data-t="opt_check">Check on a request</span> <i>&rsaquo;</i></button>
+      <button class="opt" type="button" data-say="I have a question about my invoice"><span data-t="opt_invoice">Invoice question</span> <i>&rsaquo;</i></button>
+      <button class="opt" type="button" data-say="I would like to talk to a person"><span data-t="opt_person">Talk to a person</span> <i>&rsaquo;</i></button>
+      <p class="hint" id="callhint" data-t="callhint" hidden>Prefer to speak? Call us any time.</p>
     </section>
     <div class="log" id="log" role="log" aria-live="polite"></div>
   </main>
   <form class="composer" id="form" autocomplete="off">
-    <input id="text" type="text" maxlength="500" placeholder="Type a message" aria-label="Message" enterkeyhint="send">
-    <button class="send" id="send" type="submit" aria-label="Send">&rarr;</button>
+    <input id="text" type="text" maxlength="500" placeholder="Type a message" data-tp="ph" aria-label="Message" data-ta="aria_msg" enterkeyhint="send">
+    <button class="send" id="send" type="submit" aria-label="Send" data-ta="aria_send">&rarr;</button>
   </form>
 </div>
 <script nonce="__NONCE__">
@@ -120,6 +124,33 @@ var code = document.body.getAttribute("data-code"), base = "/c/" + code, token =
 var $ = function (id) { return document.getElementById(id); };
 var log = $("log"), scroller = $("scroll"), typing = null;
 function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+var T = {"en":{"back":"Back to the menu","sub":"Usually replies in seconds","call":"Call us","h1":"How can we help?","intro":"Type your request and our assistant will sort it out. Typing keeps your name and number accurate.","opt_book":"Book an appointment","opt_change":"Change or cancel a visit","opt_check":"Check on a request","opt_invoice":"Invoice question","opt_person":"Talk to a person","callhint":"Prefer to speak? Call us any time.","ph":"Type a message","aria_msg":"Message","aria_send":"Send","lang_label":"Language","typing":"Typing…","busy":"Too many people are using this chat right now. Please try again in a few minutes.","inactive":"This chat link is not active. Please ask the business for a new QR code.","connect":"Could not connect. Check your internet and reload this page.","timeout":"This chat timed out. Please start again.","fast":"You are sending messages too fast. Please wait a moment and try again.","failsend":"That did not send. Please try again.","failnet":"That did not send. Check your internet and try again.","retry":"Try again","again":"Start again","phone_label":"Mobile number","go":"Continue","phone_bad1":"Check the number. It should include the country code and digits only.","phone_bad2":"Check the number. Type the digits without the country code.","email_label":"Email address","email_bad":"That does not look like an email address. Check it and try again.","didyou":"Did you mean {x}?","yes_use":"Yes, use it","no_keep":"No, keep mine","title":"Chat with {x}"},"hi":{"back":"मेनू पर वापस जाएँ","sub":"आमतौर पर कुछ ही सेकंड में जवाब","call":"कॉल करें","h1":"हम आपकी कैसे मदद करें?","intro":"अपनी ज़रूरत लिखिए, हमारा असिस्टेंट संभाल लेगा। टाइप करने से आपका नाम और नंबर सही रहता है।","opt_book":"अपॉइंटमेंट बुक करें","opt_change":"विज़िट बदलें या रद्द करें","opt_check":"अपने अनुरोध की स्थिति देखें","opt_invoice":"बिल (इनवॉइस) से जुड़ा सवाल","opt_person":"किसी व्यक्ति से बात करें","callhint":"बोलना पसंद है? हमें कभी भी कॉल करें।","ph":"संदेश लिखें","aria_msg":"संदेश","aria_send":"भेजें","lang_label":"भाषा","typing":"लिख रहा है…","busy":"अभी बहुत से लोग इस चैट का उपयोग कर रहे हैं। कृपया कुछ मिनट बाद फिर कोशिश करें।","inactive":"यह चैट लिंक चालू नहीं है। कृपया व्यवसाय से नया QR कोड माँगें।","connect":"कनेक्ट नहीं हो सका। अपना इंटरनेट जाँचें और यह पेज दोबारा खोलें।","timeout":"यह चैट समय सीमा पार कर गई। कृपया फिर से शुरू करें।","fast":"आप बहुत तेज़ी से संदेश भेज रहे हैं। कृपया थोड़ा रुककर फिर कोशिश करें।","failsend":"संदेश नहीं भेजा जा सका। कृपया फिर कोशिश करें।","failnet":"संदेश नहीं भेजा जा सका। अपना इंटरनेट जाँचें और फिर कोशिश करें।","retry":"फिर कोशिश करें","again":"फिर से शुरू करें","phone_label":"मोबाइल नंबर","go":"आगे बढ़ें","phone_bad1":"नंबर जाँचें। उसमें देश कोड और केवल अंक होने चाहिए।","phone_bad2":"नंबर जाँचें। देश कोड के बिना केवल अंक लिखें।","email_label":"ईमेल पता","email_bad":"यह ईमेल पते जैसा नहीं लग रहा। जाँचकर फिर कोशिश करें।","didyou":"क्या आपका मतलब {x} है?","yes_use":"हाँ, यही इस्तेमाल करें","no_keep":"नहीं, मेरा ही रखें","title":"{x} के साथ चैट"},"te":{"back":"మెనూకి తిరిగి వెళ్ళండి","sub":"సాధారణంగా కొన్ని సెకన్లలో సమాధానం","call":"కాల్ చేయండి","h1":"మేము మీకు ఎలా సహాయం చేయగలం?","intro":"మీ అవసరాన్ని టైప్ చేయండి, మా అసిస్టెంట్ చూసుకుంటుంది. టైప్ చేస్తే మీ పేరు, నంబర్ సరిగ్గా ఉంటాయి.","opt_book":"అపాయింట్‌మెంట్ బుక్ చేయండి","opt_change":"సందర్శనను మార్చండి లేదా రద్దు చేయండి","opt_check":"నా అభ్యర్థన స్థితిని చూడండి","opt_invoice":"ఇన్వాయిస్ గురించి ప్రశ్న","opt_person":"ఒక వ్యక్తితో మాట్లాడండి","callhint":"మాట్లాడటం ఇష్టమా? ఎప్పుడైనా మాకు కాల్ చేయండి.","ph":"సందేశం టైప్ చేయండి","aria_msg":"సందేశం","aria_send":"పంపండి","lang_label":"భాష","typing":"టైప్ చేస్తోంది…","busy":"ప్రస్తుతం చాలా మంది ఈ చాట్‌ను ఉపయోగిస్తున్నారు. దయచేసి కొన్ని నిమిషాల తర్వాత మళ్ళీ ప్రయత్నించండి.","inactive":"ఈ చాట్ లింక్ పనిచేయడం లేదు. దయచేసి వ్యాపారాన్ని కొత్త QR కోడ్ అడగండి.","connect":"కనెక్ట్ కాలేకపోయింది. మీ ఇంటర్నెట్‌ను తనిఖీ చేసి ఈ పేజీని మళ్ళీ తెరవండి.","timeout":"ఈ చాట్ సమయం ముగిసింది. దయచేసి మళ్ళీ ప్రారంభించండి.","fast":"మీరు చాలా వేగంగా సందేశాలు పంపుతున్నారు. దయచేసి కొంచెం ఆగి మళ్ళీ ప్రయత్నించండి.","failsend":"సందేశం పంపబడలేదు. దయచేసి మళ్ళీ ప్రయత్నించండి.","failnet":"సందేశం పంపబడలేదు. మీ ఇంటర్నెట్‌ను తనిఖీ చేసి మళ్ళీ ప్రయత్నించండి.","retry":"మళ్ళీ ప్రయత్నించండి","again":"మళ్ళీ ప్రారంభించండి","phone_label":"మొబైల్ నంబర్","go":"కొనసాగించండి","phone_bad1":"నంబర్‌ను తనిఖీ చేయండి. అందులో దేశ కోడ్, అంకెలు మాత్రమే ఉండాలి.","phone_bad2":"నంబర్‌ను తనిఖీ చేయండి. దేశ కోడ్ లేకుండా అంకెలు మాత్రమే టైప్ చేయండి.","email_label":"ఇమెయిల్ చిరునామా","email_bad":"ఇది ఇమెయిల్ చిరునామాలా లేదు. తనిఖీ చేసి మళ్ళీ ప్రయత్నించండి.","didyou":"మీరు {x} అని అనుకున్నారా?","yes_use":"అవును, దీన్నే వాడండి","no_keep":"కాదు, నాదే ఉంచండి","title":"{x}తో చాట్"},"ta":{"back":"மெனுவுக்குத் திரும்பு","sub":"பொதுவாக சில விநாடிகளில் பதில்","call":"அழைக்கவும்","h1":"நாங்கள் எப்படி உதவலாம்?","intro":"உங்கள் தேவையை தட்டச்சு செய்யுங்கள், எங்கள் உதவியாளர் பார்த்துக்கொள்வார். தட்டச்சு செய்வதால் உங்கள் பெயரும் எண்ணும் சரியாக இருக்கும்.","opt_book":"சந்திப்பை முன்பதிவு செய்யுங்கள்","opt_change":"சந்திப்பை மாற்றவும் அல்லது ரத்து செய்யவும்","opt_check":"என் கோரிக்கையின் நிலையைப் பாருங்கள்","opt_invoice":"இன்வாய்ஸ் தொடர்பான கேள்வி","opt_person":"ஒருவரிடம் பேசுங்கள்","callhint":"பேச விரும்புகிறீர்களா? எப்போது வேண்டுமானாலும் எங்களை அழைக்கவும்.","ph":"செய்தியை தட்டச்சு செய்யுங்கள்","aria_msg":"செய்தி","aria_send":"அனுப்பு","lang_label":"மொழி","typing":"தட்டச்சு செய்கிறது…","busy":"இப்போது நிறைய பேர் இந்த அரட்டையைப் பயன்படுத்துகிறார்கள். சில நிமிடங்கள் கழித்து மீண்டும் முயலுங்கள்.","inactive":"இந்த அரட்டை இணைப்பு செயலில் இல்லை. புதிய QR குறியீட்டை வணிகத்திடம் கேளுங்கள்.","connect":"இணைக்க முடியவில்லை. உங்கள் இணையத்தைச் சரிபார்த்து இந்தப் பக்கத்தை மீண்டும் திறக்கவும்.","timeout":"இந்த அரட்டை நேரம் முடிந்துவிட்டது. தயவுசெய்து மீண்டும் தொடங்குங்கள்.","fast":"நீங்கள் மிக வேகமாக செய்திகளை அனுப்புகிறீர்கள். சற்று காத்திருந்து மீண்டும் முயலுங்கள்.","failsend":"செய்தி அனுப்பப்படவில்லை. மீண்டும் முயலுங்கள்.","failnet":"செய்தி அனுப்பப்படவில்லை. உங்கள் இணையத்தைச் சரிபார்த்து மீண்டும் முயலுங்கள்.","retry":"மீண்டும் முயலுங்கள்","again":"மீண்டும் தொடங்குங்கள்","phone_label":"மொபைல் எண்","go":"தொடரவும்","phone_bad1":"எண்ணைச் சரிபார்க்கவும். அதில் நாட்டுக் குறியீடும் எண்களும் மட்டுமே இருக்க வேண்டும்.","phone_bad2":"எண்ணைச் சரிபார்க்கவும். நாட்டுக் குறியீடு இல்லாமல் எண்களை மட்டும் உள்ளிடவும்.","email_label":"மின்னஞ்சல் முகவரி","email_bad":"இது மின்னஞ்சல் முகவரி போலத் தெரியவில்லை. சரிபார்த்து மீண்டும் முயலுங்கள்.","didyou":"நீங்கள் {x} என்று நினைத்தீர்களா?","yes_use":"ஆம், இதையே பயன்படுத்து","no_keep":"இல்லை, என்னுடையதே இருக்கட்டும்","title":"{x} உடன் அரட்டை"}};
+var lang = document.body.getAttribute("data-lang") || "en-IN", offered = [];
+try { offered = JSON.parse(document.body.getAttribute("data-langs") || "[]"); } catch (e) { offered = []; }
+function t(key, x) { var b = lang.split("-")[0], s = (T[b] && T[b][key]) || T.en[key] || key; return x === undefined ? s : s.replace("{x}", x); }
+function applyLang() {
+  document.documentElement.lang = lang.split("-")[0];
+  Array.prototype.slice.call(document.querySelectorAll("[data-t]")).forEach(function (n) { n.textContent = t(n.getAttribute("data-t")); });
+  Array.prototype.slice.call(document.querySelectorAll("[data-tp]")).forEach(function (n) { n.setAttribute("placeholder", t(n.getAttribute("data-tp"))); });
+  Array.prototype.slice.call(document.querySelectorAll("[data-ta]")).forEach(function (n) { n.setAttribute("aria-label", t(n.getAttribute("data-ta"))); });
+  Array.prototype.slice.call(document.querySelectorAll(".lg")).forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-code") === lang ? "true" : "false"); });
+}
+function pickLang() {
+  var codes = offered.map(function (o) { return o[0]; }), want = (navigator.language || "").toLowerCase().split("-")[0];
+  var match = codes.filter(function (c) { return c.toLowerCase().split("-")[0] === want; })[0];
+  if (match) lang = match; else if (codes.indexOf(lang) < 0 && codes.length) lang = codes[0];
+}
+function buildLangs() {
+  if (offered.length < 2) return;
+  var box = $("langs");
+  offered.forEach(function (o) {
+    var b = el("button", "lg", o[1]); b.type = "button"; b.setAttribute("data-code", o[0]); b.setAttribute("lang", o[0].split("-")[0]);
+    b.addEventListener("click", function () { if (lang === o[0]) return; lang = o[0]; applyLang(); if (!inChat) start(); });
+    box.appendChild(b);
+  });
+  box.hidden = false;
+}
+
 function down() { scroller.scrollTop = scroller.scrollHeight; }
 function add(node) { log.appendChild(node); down(); return node; }
 function clearWidgets() { Array.prototype.slice.call(log.querySelectorAll(".card,.chips")).forEach(function (n) { n.remove(); }); }
@@ -143,17 +174,17 @@ function post(path, body) {
 
 function start() {
   token = null; setBusy(true);
-  post("/session", {}).then(function (r) {
+  post("/session", {lang: lang}).then(function (r) {
     if (r.status !== 200) {
       $("welcome").classList.add("hidden");
-      say(r.status === 429 ? "Too many people are using this chat right now. Please try again in a few minutes." : "This chat link is not active. Please ask the business for a new QR code.", "err");
+      say(r.status === 429 ? t("busy") : t("inactive"), "err");
       return;
     }
     token = r.body.session; country = r.body.country || "+91"; setBusy(false);
-    $("name").textContent = r.body.name; document.title = "Chat with " + r.body.name;
+    $("name").textContent = r.body.name; document.title = t("title", r.body.name);
     $("mark").textContent = (r.body.name || "?").charAt(0).toUpperCase();
     if (r.body.phone) { callNumber = r.body.phone; $("call").href = "tel:" + callNumber; $("call").classList.remove("hidden"); $("callhint").hidden = false; }
-  }).catch(function () { say("Could not connect. Check your internet and reload this page.", "err"); });
+  }).catch(function () { say(t("connect"), "err"); });
 }
 
 /* Back: the arrow and the phone's own back button/swipe both return to the menu. */
@@ -170,7 +201,7 @@ function toMenu() {
 $("back").addEventListener("click", function () { if (history.state && history.state.chat) history.back(); else toMenu(); });
 window.addEventListener("popstate", function () { if (inChat) toMenu(); });
 
-function showTyping() { typing = add(el("div", "typing", "Typing…")); }
+function showTyping() { typing = add(el("div", "typing", t("typing"))); }
 function hideTyping() { if (typing) { typing.remove(); typing = null; } }
 
 function send(text) {
@@ -183,16 +214,16 @@ function send(text) {
     if (mine !== token) return;
     hideTyping(); setBusy(false);
     if (r.status === 200) { reply(r.body); return; }
-    if (r.status === 410) { say("This chat timed out. Please start again.", "err"); expired(); return; }
-    if (r.status === 429) { say("You are sending messages too fast. Please wait a moment and try again.", "err"); retry(); return; }
-    say((r.body && typeof r.body.detail === "string") ? r.body.detail : "That did not send. Please try again.", "err"); retry();
-  }).catch(function () { if (mine !== token) return; hideTyping(); setBusy(false); say("That did not send. Check your internet and try again.", "err"); retry(); });
+    if (r.status === 410) { say(t("timeout"), "err"); expired(); return; }
+    if (r.status === 429) { say(t("fast"), "err"); retry(); return; }
+    say((r.body && typeof r.body.detail === "string") ? r.body.detail : t("failsend"), "err"); retry();
+  }).catch(function () { if (mine !== token) return; hideTyping(); setBusy(false); say(t("failnet"), "err"); retry(); });
 }
 function retry() {
-  var b = el("button", "chip", "Try again"); b.type = "button"; var box = el("div", "chips"); box.appendChild(b); add(box);
+  var b = el("button", "chip", t("retry")); b.type = "button"; var box = el("div", "chips"); box.appendChild(b); add(box);
   b.addEventListener("click", function () { box.remove(); var all = log.querySelectorAll(".u"); if (all.length) all[all.length - 1].remove(); send(lastText); });
 }
-function expired() { var b = el("button", "again", "Start again"); b.type = "button"; add(b); b.addEventListener("click", function () { window.location.reload(); }); setBusy(true); }
+function expired() { var b = el("button", "again", t("again")); b.type = "button"; add(b); b.addEventListener("click", function () { window.location.reload(); }); setBusy(true); }
 
 function reply(data) {
   say(data.reply || "", "a");
@@ -209,14 +240,14 @@ function chips(list) {
 
 function digitsOnly(s) { return (s || "").replace(/[^0-9]/g, ""); }
 function phoneCard() {
-  var card = el("div", "card"), label = el("label", null, "Mobile number"), row = el("div", "field"), pre = el("span", null, country), input = el("input");
+  var card = el("div", "card"), label = el("label", null, t("phone_label")), row = el("div", "field"), pre = el("span", null, country), input = el("input");
   input.type = "tel"; input.inputMode = "numeric"; input.autocomplete = "tel-national"; input.id = "phone-in"; input.placeholder = "98765 43210"; input.maxLength = 20; label.htmlFor = "phone-in";
   row.appendChild(pre); row.appendChild(input);
-  var go = el("button", "go", "Continue"); go.type = "button"; var msg = el("p", "msg hidden");
+  var go = el("button", "go", t("go")); go.type = "button"; var msg = el("p", "msg hidden");
   function submit() {
     var raw = input.value.trim(), d = digitsOnly(raw), full;
-    if (raw.charAt(0) === "+") { full = "+" + d; if (d.length < 8 || d.length > 15) return bad("Check the number. It should include the country code and digits only."); }
-    else { var cc = digitsOnly(country); if (d.length < 8 || d.length > 12) return bad("Check the number. Type the digits without the country code."); full = "+" + cc + d; }
+    if (raw.charAt(0) === "+") { full = "+" + d; if (d.length < 8 || d.length > 15) return bad(t("phone_bad1")); }
+    else { var cc = digitsOnly(country); if (d.length < 8 || d.length > 12) return bad(t("phone_bad2")); full = "+" + cc + d; }
     send("My mobile number is " + full + ".");
   }
   function bad(t) { msg.textContent = t; msg.classList.remove("hidden"); input.focus(); }
@@ -227,20 +258,20 @@ function phoneCard() {
 var DOMAIN_FIX = {"gmial.com": "gmail.com", "gamil.com": "gmail.com", "gmai.com": "gmail.com", "gmail.co": "gmail.com", "gmail.con": "gmail.com", "gnail.com": "gmail.com",
   "yahooo.com": "yahoo.com", "yaho.com": "yahoo.com", "yahoo.con": "yahoo.com", "hotnail.com": "hotmail.com", "hotmial.com": "hotmail.com", "outlok.com": "outlook.com", "outlook.con": "outlook.com"};
 function emailCard() {
-  var card = el("div", "card"), label = el("label", null, "Email address"), row = el("div", "field"), input = el("input");
+  var card = el("div", "card"), label = el("label", null, t("email_label")), row = el("div", "field"), input = el("input");
   input.type = "email"; input.autocomplete = "email"; input.id = "email-in"; input.placeholder = "name@example.com"; input.maxLength = 120; input.spellcheck = false; label.htmlFor = "email-in";
   input.setAttribute("autocapitalize", "none"); row.appendChild(input);
-  var go = el("button", "go", "Continue"); go.type = "button"; var msg = el("p", "msg hidden");
+  var go = el("button", "go", t("go")); go.type = "button"; var msg = el("p", "msg hidden");
   function bad(t) { msg.className = "msg"; msg.textContent = t; input.focus(); }
   function submit() {
     var v = input.value.trim().toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v)) return bad("That does not look like an email address. Check it and try again.");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v)) return bad(t("email_bad"));
     var domain = v.split("@")[1];
     if (DOMAIN_FIX[domain] && !msg.getAttribute("data-asked")) {
       var fixed = v.split("@")[0] + "@" + DOMAIN_FIX[domain];
-      msg.setAttribute("data-asked", "1"); msg.className = "msg fix"; msg.textContent = "Did you mean " + fixed + "?";
-      var yes = el("button", null, "Yes, use it"); yes.type = "button"; yes.addEventListener("click", function () { send("My email is " + fixed + "."); });
-      var no = el("button", null, "No, keep mine"); no.type = "button"; no.addEventListener("click", function () { send("My email is " + v + "."); });
+      msg.setAttribute("data-asked", "1"); msg.className = "msg fix"; msg.textContent = t("didyou", fixed);
+      var yes = el("button", null, t("yes_use")); yes.type = "button"; yes.addEventListener("click", function () { send("My email is " + fixed + "."); });
+      var no = el("button", null, t("no_keep")); no.type = "button"; no.addEventListener("click", function () { send("My email is " + v + "."); });
       msg.appendChild(yes); msg.appendChild(no); return;
     }
     send("My email is " + v + ".");
@@ -252,6 +283,7 @@ function emailCard() {
 Array.prototype.slice.call(document.querySelectorAll(".opt")).forEach(function (b) { b.addEventListener("click", function () { send(b.getAttribute("data-say")); }); });
 $("form").addEventListener("submit", function (e) { e.preventDefault(); var t = $("text").value; $("text").value = ""; send(t); });
 $("text").addEventListener("focus", function () { setTimeout(function () { if (inChat) down(); }, 250); });
+pickLang(); buildLangs(); applyLang();
 start();
 </script>
 </body>

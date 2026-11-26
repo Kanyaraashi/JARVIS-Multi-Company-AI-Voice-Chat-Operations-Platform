@@ -19,6 +19,7 @@ load_dotenv()
 
 from livekit.agents import Agent, AgentServer, AgentSession, JobContext  # noqa: E402
 
+from app import languages  # noqa: E402
 from app.agent import handoff  # noqa: E402
 from app.agent_tools import API_BASE  # noqa: E402
 from app.privacy import install_log_redaction  # noqa: E402
@@ -38,12 +39,20 @@ GOODBYE_SILENT = "I can't hear you, so I'll end the call now. Please call again 
 
 
 class JarvisAgent(Agent):
-    def __init__(self, instructions: str, tools: list, greeting: str):
+    def __init__(self, instructions: str, tools: list, greeting: str, greeting_language: str = ""):
         super().__init__(instructions=instructions, tools=tools)
         self._greeting = greeting
+        self._greeting_language = greeting_language
 
     async def on_enter(self) -> None:
-        if self._greeting:
+        if not self._greeting:
+            return
+        if self._greeting_language and self._greeting_language != "en-IN":
+            # The company greeting is written in English: have the AI say it in the call's first language.
+            self.session.generate_reply(instructions=(
+                f"Greet the caller in {languages.english_name(self._greeting_language)} by saying this greeting, "
+                f"translated naturally into that language and written in its own script: {self._greeting}"))
+        else:
             self.session.say(self._greeting)  # fixed text: no AI delay before the first words
 
 
@@ -174,10 +183,13 @@ async def entrypoint(ctx: JobContext) -> None:  # pragma: no cover (needs a live
     recorder = CallRecorder(room_name, direction, caller, parts["names"])
     bind_hooks(hooks, recorder)
     session = AgentSession(**parts["kwargs"])
+    switcher = parts["switcher"]
+    allowed = switcher.allowed if switcher else languages.voice_languages()
     agent = JarvisAgent(
-        build_voice_prompt(company),
-        [] if blocked else build_tools(api_key, uuid.uuid4().hex, recorder),
+        build_voice_prompt(company, allowed),
+        [] if blocked else build_tools(api_key, uuid.uuid4().hex, recorder, switcher),
         "" if blocked else company["greeting"],
+        allowed[0],
     )
 
     async def hang_up(message: str) -> None:
@@ -205,7 +217,7 @@ async def entrypoint(ctx: JobContext) -> None:  # pragma: no cover (needs a live
         await hang_up(CAP_MESSAGE)
         return
     limit_task["task"] = asyncio.create_task(time_limit())
-    log.info("Call started: company=%s direction=%s room=%s stack=%s", slug, direction, room_name, config.stack())
+    log.info("Call started: company=%s direction=%s room=%s stack=%s languages=%s", slug, direction, room_name, config.stack(), ",".join(allowed))
 
 
 server = AgentServer()

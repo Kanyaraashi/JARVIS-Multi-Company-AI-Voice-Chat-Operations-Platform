@@ -1,0 +1,26 @@
+# Public demo on Render: one address, two small services behind it. Render does the HTTPS, so Caddy listens on plain HTTP.
+{
+	auto_https off
+	admin off
+}
+
+:{$PORT} {
+	encode gzip
+
+	# Things that must never be reachable from the internet.
+	@private path /internal/* /docs /docs/* /redoc /openapi.json
+	respond @private 404
+
+	header {
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	# The customer chat (QR code page) is its own small service; everything else is the API.
+	handle /c/* {
+		reverse_proxy 127.0.0.1:8100
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8000
+	}
+}

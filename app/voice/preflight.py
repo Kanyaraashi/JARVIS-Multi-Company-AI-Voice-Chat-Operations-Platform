@@ -16,6 +16,7 @@ from typing import Callable, List, Mapping, Optional
 import httpx
 from dotenv import load_dotenv
 
+from app import languages
 from app.voice import config
 
 E164 = re.compile(r"^\+[1-9]\d{7,14}$")
@@ -84,6 +85,31 @@ def check_speech(env: Mapping) -> List[Result]:
     if (env.get(key) or "").strip():
         return [ok("speech stack", f"{stack}, key set")]
     return [fail("speech stack", f"VOICE_STACK is {stack} but {key} is missing in .env.")]
+
+
+def check_languages(env: Mapping) -> List[Result]:
+    """Nothing is said for a plain English line, so existing setups see no change."""
+    stack = (env.get("VOICE_STACK") or "deepgram").strip().lower()
+    raw = (env.get("VOICE_LANGUAGES") or "").strip()
+    start = (env.get("VOICE_LANGUAGE") or "").strip()
+    if not raw and start in ("", "en-IN"):
+        return []
+    try:
+        allowed = languages.voice_languages(env)
+    except SystemExit as exc:
+        return [fail("languages", str(exc))]
+    if start and languages.normalise(start) is None:
+        return [fail("languages", f"VOICE_LANGUAGE '{start}' is not supported. Use one of: " + ", ".join(languages.LANGUAGES) + ".")]
+    out = []
+    if stack == "deepgram" and any(c != "en-IN" for c in allowed):
+        out.append(warn("languages", "Deepgram is set up for English only here. For Hindi, Telugu, Tamil and the rest, set VOICE_STACK=sarvam."))
+    else:
+        names = ", ".join(languages.english_name(c) for c in allowed)
+        out.append(ok("languages", f"calls start in {languages.english_name(allowed[0])}; allowed: {names}"))
+    mode = (env.get("SARVAM_STT_MODE") or "realtime").strip().lower()
+    if stack == "sarvam" and mode not in ("realtime", "standard"):
+        out.append(fail("sarvam listener", f"SARVAM_STT_MODE must be realtime or standard (you wrote '{mode}')."))
+    return out
 
 
 def check_models(env: Mapping) -> List[Result]:
@@ -176,7 +202,7 @@ def check_spool(env: Mapping) -> List[Result]:
 
 
 def run(env: Mapping, get: Callable = httpx.get, production: bool = False) -> List[Result]:
-    return (check_numbers(env) + check_livekit(env) + check_speech(env) + check_models(env) + check_lines(env, production)
+    return (check_numbers(env) + check_livekit(env) + check_speech(env) + check_languages(env) + check_models(env) + check_lines(env, production)
             + check_api(env, get) + check_spool(env))
 
 

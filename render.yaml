@@ -1,0 +1,34 @@
+# Render Blueprint for the public demo. Secrets are NEVER written here: every sync:false value is typed into Render's dashboard.
+# See DEMO_DEPLOY.md.
+services:
+  - type: web
+    name: jarvis-demo
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile.demo
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL            # postgresql+psycopg://jarvis_app:...@<neon host>/<db>?sslmode=require
+        sync: false
+      - key: GEMINI_API_KEY          # a SEPARATE key made only for the demo
+        sync: false
+      - key: PUBLIC_BASE_URL         # https://<your service>.onrender.com
+        sync: false
+      - key: JARVIS_KEY_DEMO_CLINIC  # the AI key printed by: owner onboard
+        sync: false
+      - key: CHAT_CODE_DEMO_CLINIC   # made by: python -m app.webchat.qr new demo-clinic
+        sync: false
+      - key: N8N_WEBHOOK_SECRET
+        generateValue: true
+      - key: TRUSTED_PROXY_COUNT
+        value: "0"
+      - key: CHAT_DAILY_MESSAGES
+        value: "200"
+      - key: CHAT_MESSAGES_PER_MINUTE
+        value: "12"
+      - key: CHAT_SESSIONS_PER_HOUR
+        value: "20"
+      - key: CHAT_COUNTRY_CODE
+        value: "+91"
+      - key: PYTHON_VERSION
+        value: "3.12"

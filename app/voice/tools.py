@@ -28,5 +28,20 @@ def adapt(fn, recorder):
     return function_tool(wrapper, name=fn.__name__, description=inspect.getdoc(fn))
 
 
-def build_tools(api_key: str, session_id: str, recorder) -> list:
-    return [adapt(fn, recorder) for fn in make_tools(api_key, session_id)]
+def language_tool(switcher, recorder):
+    async def switch_language(language: str) -> dict:
+        """Change the language of this phone call. Call it as soon as the caller speaks or asks for a different language
+        from the list on this line. Pass the language code, for example te-IN for Telugu, hi-IN for Hindi, ta-IN for Tamil,
+        en-IN for English. After it returns ok, speak in that language."""
+        result = switcher.switch(language)
+        recorder.tool_finished("switch_language", result)
+        return result
+
+    return function_tool(switch_language, name="switch_language", description=inspect.getdoc(switch_language))
+
+
+def build_tools(api_key: str, session_id: str, recorder, switcher=None) -> list:
+    tools = [adapt(fn, recorder) for fn in make_tools(api_key, session_id)]
+    if switcher is not None and len(switcher.allowed) > 1:
+        tools.append(language_tool(switcher, recorder))
+    return tools

@@ -24,3 +24,28 @@ Jarvis_Overview.pdf
 !.env.example
 backups/
 .venv/
+
+# ---- secrets and local-only files: NEVER push ----
+.env
+.env.*
+!.env.example
+qr/
+livekit/
+sarvam_test/
+phone_diag.txt
+*.wav
+*.log
+backups/
+*.sql
+*.dump
+
+# ---- generated or machine-specific ----
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.zip
+jarvis/

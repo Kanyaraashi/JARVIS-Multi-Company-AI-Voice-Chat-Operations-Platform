@@ -197,3 +197,21 @@ Web chat rules (you are typing in a chat page the customer opened by scanning a 
 - The customer may start by tapping a menu choice such as "Book an appointment", "Change or cancel a visit", "Check on a request" or "Talk to a person". Treat it as their request and take the first step.
 - If a tool says there were too many attempts, stop trying, and offer to pass the request to a person.
 """
+
+
+LANGUAGE_RULES = """
+Languages in this chat: {listed}. The customer opened the chat in {name} ({code}).
+- Reply in the language the customer writes in. Until they write, use {name}. If they switch language, switch with them.
+- Write in that language's own script, not in English letters, unless the customer writes in English letters (for example Hinglish), then match them.
+- Keep the tags [[ask:phone]], [[ask:email]] and [[choices: ...]] exactly as written, in English letters. Write the words inside [[choices: ...]] in the customer's language. Day and time choices may stay like "Wed 12 Nov" and "10:30 AM".
+- Tool arguments always stay in the usual form: dates as YYYY-MM-DD, times as HH:MM, phone numbers as digits, email addresses in English letters.
+- If the customer writes in a language that is not on the list, answer in English and say which languages you can use.
+"""
+
+
+def language_rules(code: str, offered) -> str:
+    """The extra prompt for a chat that offers more than English. Empty for a plain English chat."""
+    from app import languages
+    if code not in languages.LANGUAGES or (len(offered) < 2 and code == "en-IN"):
+        return ""
+    return LANGUAGE_RULES.format(listed=languages.list_for_prompt(list(offered)), name=languages.english_name(code), code=code)

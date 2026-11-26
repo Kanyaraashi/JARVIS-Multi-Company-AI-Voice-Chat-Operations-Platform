@@ -1,4 +1,5 @@
 """What changes when the AI is speaking on a phone instead of typing."""
+from app import languages
 from app.agent import build_system_prompt
 
 VOICE_RULES = """
@@ -14,5 +15,21 @@ Voice call rules (you are speaking out loud on a phone call, not typing):
 """
 
 
-def build_voice_prompt(company: dict) -> str:
-    return build_system_prompt(company) + VOICE_RULES
+LANGUAGE_RULES = """
+Languages on this phone line: {listed}.
+- Every call starts in {start}.
+- Always answer in the language the caller is speaking. When the caller speaks, or asks for, another language from the list, call switch_language with its code BEFORE you say anything else, then carry on in that language.
+- If the caller uses a language that is not on the list, say so briefly in {start} and ask which listed language they prefer.
+- The voice reads your words in the call's current language, so write every reply in that language's own script (for Telugu, Telugu script), never in English letters.
+- Tool arguments always stay in the usual form: dates as YYYY-MM-DD, times as HH:MM, phone numbers and ticket numbers as digits, email addresses in English letters.
+- Ask the caller to spell names and email addresses in English letters, one letter at a time, and read them back.
+- Read phone numbers and ticket numbers back one digit at a time.
+"""
+
+
+def build_voice_prompt(company: dict, allowed=None) -> str:
+    """allowed: the languages of this phone line (the first is where calls start). One English-only line adds nothing."""
+    prompt = build_system_prompt(company) + VOICE_RULES
+    if allowed and (len(allowed) > 1 or allowed[0] != "en-IN"):
+        prompt += LANGUAGE_RULES.format(listed=languages.list_for_prompt(allowed), start=languages.english_name(allowed[0]))
+    return prompt

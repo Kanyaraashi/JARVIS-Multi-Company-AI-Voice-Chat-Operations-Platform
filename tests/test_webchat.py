@@ -403,9 +403,9 @@ def test_when_the_ai_is_down_the_customer_is_handed_to_staff_not_dropped(chat, m
 
     monkeypatch.setattr(server, "handoff", fake_handoff)
     token = start(chat)
-    r = chat.post(f"/c/{DENTAL}/message", json={"session": token, "text": "call me on +919876543210 please"})
+    r = chat.post(f"/c/{DENTAL}/message", json={"session": token, "text": "call me on +91********* please"})
     assert r.status_code == 200 and "passed your request to our team" in r.json()["reply"]
-    assert seen == {"key": "jrv_dental_key_for_tests", "text": "call me on +919876543210 please", "phone": "+919876543210"}
+    assert seen == {"key": "jrv_dental_key_for_tests", "text": "call me on +91**********8 please", "phone": "+91*******"}
 
 
 def test_a_bug_in_a_turn_hands_over_to_staff_instead_of_an_error_page(chat, monkeypatch):

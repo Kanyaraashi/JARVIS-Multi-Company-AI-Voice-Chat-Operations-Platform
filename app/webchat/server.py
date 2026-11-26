@@ -24,6 +24,7 @@ import threading
 import time
 import uuid
 from datetime import date
+from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -36,7 +37,8 @@ from app.agent import ChatSession, TurnFailed, find_phone, handoff, handoff_mess
 from app.privacy import install_log_redaction
 from app.ratelimit import RateLimiter, reject
 from app.webchat import qr
-from app.webchat.guard import WEB_RULES, parse_reply, web_tools
+from app import languages
+from app.webchat.guard import WEB_RULES, language_rules, parse_reply, web_tools
 from app.webchat.page import PAGE
 
 load_dotenv()
@@ -120,7 +122,8 @@ def make_ai_session(company: dict, key: str, session_id: str) -> ChatSession:
             models.append(name.strip())
     log: list = []
     return ChatSession(
-        client, build_system_prompt(company) + WEB_RULES, web_tools(key, session_id, log), log, models,
+        client, build_system_prompt(company) + WEB_RULES + language_rules(company.get("chat_language") or "en-IN", company.get("chat_languages") or ["en-IN"]),
+        web_tools(key, session_id, log), log, models,
         os.getenv("GEMINI_THINKING_LEVEL", "LOW").strip().upper(),
     )
 
@@ -188,22 +191,42 @@ def resolve(code: str, request: Request) -> str:
     return match
 
 
+def offered_languages() -> list:
+    """CHAT_LANGUAGES, first = default. A wrong setting is logged and the chat falls back to English instead of breaking."""
+    try:
+        return languages.chat_languages()
+    except SystemExit as exc:
+        log.error("%s Falling back to English only.", exc)
+        return ["en-IN"]
+
+
 @app.get("/c/{code}", response_class=HTMLResponse, include_in_schema=False)
 def chat_page(code: str, request: Request):
+    import html
+    import json as _json
     resolve(code, request)
     nonce = secrets.token_urlsafe(16)
-    return HTMLResponse(PAGE.replace("__NONCE__", nonce).replace("__CODE__", code), headers=page_headers(nonce))
+    offered = offered_languages()
+    listing = html.escape(_json.dumps([[c, languages.native_name(c)] for c in offered]), quote=True)
+    page = PAGE.replace("__NONCE__", nonce).replace("__CODE__", code).replace("__LANGS__", listing).replace("__LANG__", offered[0])
+    return HTMLResponse(page, headers=page_headers(nonce))
+
+
+class Start(BaseModel):
+    lang: Optional[str] = Field(default=None, max_length=12)
 
 
 @app.post("/c/{code}/session")
-def start_session(code: str, request: Request):
+def start_session(code: str, request: Request, body: Optional[Start] = None):
     slug = resolve(code, request)
     ip = client_ip(request)
     wait = session_limiter.retry_after(ip)
     if wait:
         reject(wait)
     session_limiter.hit(ip)
-    company = load_company(slug)
+    offered = offered_languages()
+    chosen = languages.normalise(body.lang) if body and body.lang else None
+    company = {**load_company(slug), "chat_language": chosen if chosen in offered else offered[0], "chat_languages": offered}
     token = secrets.token_urlsafe(24)
     session_id = uuid.uuid4().hex
     try:
